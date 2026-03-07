@@ -1,6 +1,7 @@
 import flet as ft
 from app.views.styles.theme import Colors, Sizes, Styles
 from app.api.produtos_api import ProdutosAPI
+from app.api.categorias_api import CategoriasAPI
 
 def EstoqueView(page: ft.Page):
     """Tela de gerenciamento de estoque"""
@@ -8,26 +9,92 @@ def EstoqueView(page: ft.Page):
     # Variável para armazenar o produto selecionado
     produto_selecionado = None
     linha_selecionada = None
+    categorias_disponiveis = []
     
     # ============================================================================
-    # FUNÇÃO PARA CARREGAR PRODUTOS
+    # FUNÇÃO PARA CARREGAR CATEGORIAS
     # ============================================================================
     
-    def carregar_produtos():
-        """Carrega produtos da API e atualiza a tabela"""
+    def carregar_categorias():
+        """Carrega categorias da API"""
+        nonlocal categorias_disponiveis
+        categorias = CategoriasAPI.listar_categorias()
+        categorias_disponiveis = categorias
+        return categorias
+    
+    # ============================================================================
+    # FUNÇÃO PARA CARREGAR PRODUTOS COM FILTROS
+    # ============================================================================
+    
+    def carregar_produtos(filtro_texto="", filtro_categoria="Todos"):
+        """Carrega produtos da API e atualiza a tabela com filtros"""
         produtos = ProdutosAPI.listar_produtos()
         
         # Limpa a lista atual
         items_list.controls.clear()
         
-        # Adiciona os produtos da API
+        # Aplica filtros
         if produtos:
             for produto in produtos:
                 # Só mostra produtos ativos
-                if produto.get("ativo", True):
-                    items_list.controls.append(criar_linha_produto(produto))
+                if not produto.get("ativo", True):
+                    continue
+                
+                # Filtro por texto (busca em nome e código de barras)
+                if filtro_texto:
+                    filtro_lower = filtro_texto.lower()
+                    nome = produto.get("nome", "").lower()
+                    cod_barras = produto.get("codigo_barra", "").lower()
+                    produto_id = str(produto.get("id", "")).lower()
+                    
+                    if filtro_lower not in nome and filtro_lower not in cod_barras and filtro_lower not in produto_id:
+                        continue
+                
+                # Filtro por categoria
+                if filtro_categoria != "Todos":
+                    categoria_nome = produto.get("categoria_nome", "")
+                    if categoria_nome != filtro_categoria:
+                        continue
+                
+                # Adiciona o produto à lista
+                items_list.controls.append(criar_linha_produto(produto))
+        
+        # Mostra mensagem se não encontrar nada
+        if len(items_list.controls) == 0:
+            items_list.controls.append(
+                ft.Container(
+                    content=ft.Column(
+                        controls=[
+                            ft.Icon(ft.icons.SEARCH_OFF, size=80, color=Colors.TEXT_GRAY),
+                            ft.Text(
+                                "Nenhum produto encontrado",
+                                size=Sizes.FONT_LARGE,
+                                color=Colors.TEXT_GRAY,
+                                weight=ft.FontWeight.BOLD
+                            ),
+                            ft.Text(
+                                "Tente ajustar os filtros de busca",
+                                size=Sizes.FONT_SMALL,
+                                color=Colors.TEXT_GRAY,
+                                italic=True
+                            ),
+                        ],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=10,
+                    ),
+                    padding=50,
+                    alignment=ft.alignment.center,
+                )
+            )
         
         page.update()
+    
+    def buscar_produtos(e):
+        """Busca produtos com base nos filtros"""
+        texto_busca = pesquisa_input.value.strip()
+        categoria_filtro = filtro_dropdown.value
+        
+        carregar_produtos(filtro_texto=texto_busca, filtro_categoria=categoria_filtro)
     
     # ============================================================================
     # MODAIS
@@ -35,6 +102,9 @@ def EstoqueView(page: ft.Page):
     
     def modal_incluir_produto(e):
         """Modal para incluir novo produto"""
+        
+        # Carrega categorias da API
+        categorias = carregar_categorias()
         
         # Campos do formulário
         input_cod_barras = ft.TextField(
@@ -54,9 +124,8 @@ def EstoqueView(page: ft.Page):
             label="Categoria",
             width=300,
             options=[
-                ft.dropdown.Option(text="Medicamentos", key="1"),
-                ft.dropdown.Option(text="Higiene", key="2"),
-                ft.dropdown.Option(text="Cosméticos", key="3"),
+                ft.dropdown.Option(text=cat["nome"], key=str(cat["id"])) 
+                for cat in categorias if cat.get("ativo", True)
             ],
             border_color=Colors.BORDER_GRAY,
         )
@@ -118,8 +187,8 @@ def EstoqueView(page: ft.Page):
                 )
                 page.snack_bar.open = True
                 
-                # Recarrega a lista de produtos
-                carregar_produtos()
+                # Recarrega a lista de produtos com os filtros atuais
+                buscar_produtos(None)
             else:
                 page.snack_bar = ft.SnackBar(
                     content=ft.Text("Erro ao incluir produto!"),
@@ -182,6 +251,9 @@ def EstoqueView(page: ft.Page):
             page.update()
             return
         
+        # Carrega categorias da API
+        categorias = carregar_categorias()
+        
         # Campos pré-preenchidos com dados do produto selecionado
         input_id = ft.TextField(
             label="ID do Produto",
@@ -211,12 +283,11 @@ def EstoqueView(page: ft.Page):
             label="Categoria",
             width=300,
             options=[
-                ft.dropdown.Option(text="Medicamentos", key="1"),
-                ft.dropdown.Option(text="Higiene", key="2"),
-                ft.dropdown.Option(text="Cosméticos", key="3"),
+                ft.dropdown.Option(text=cat["nome"], key=str(cat["id"])) 
+                for cat in categorias if cat.get("ativo", True)
             ],
             border_color=Colors.BORDER_GRAY,
-            value=str(produto_selecionado.get("categoria_id", "1")),
+            value=str(produto_selecionado.get("categoria_id", "")),
         )
         
         input_quantidade = ft.TextField(
@@ -225,7 +296,7 @@ def EstoqueView(page: ft.Page):
             border_color=Colors.BORDER_GRAY,
             keyboard_type=ft.KeyboardType.NUMBER,
             value=str(produto_selecionado.get("estoque", "0")),
-            disabled=True,  # Não permite alterar estoque direto
+            disabled=True,
             helper_text="Estoque atual (não editável)"
         )
         
@@ -284,8 +355,8 @@ def EstoqueView(page: ft.Page):
                 )
                 page.snack_bar.open = True
                 
-                # Recarrega a lista de produtos
-                carregar_produtos()
+                # Recarrega a lista de produtos com os filtros atuais
+                buscar_produtos(None)
             else:
                 page.snack_bar = ft.SnackBar(
                     content=ft.Text("Erro ao alterar produto!"),
@@ -369,8 +440,8 @@ def EstoqueView(page: ft.Page):
                 produto_selecionado = None
                 linha_selecionada = None
                 
-                # Recarrega a lista de produtos
-                carregar_produtos()
+                # Recarrega a lista de produtos com os filtros atuais
+                buscar_produtos(None)
             else:
                 page.snack_bar = ft.SnackBar(
                     content=ft.Text("Erro ao excluir produto!"),
@@ -474,16 +545,32 @@ def EstoqueView(page: ft.Page):
     # ============================================================================
     
     # Campo de pesquisa
-    pesquisa_input = Styles.text_field("Pesquisar por produto", Sizes.INPUT_XLARGE)
+    pesquisa_input = Styles.text_field("Pesquisar por produto", Sizes.INPUT_XLARGE, on_submit=buscar_produtos)
     
     # Botão Localizar
-    btn_localizar = Styles.button_localizar(on_click=lambda _: print("Localizar produto"))
+    btn_localizar = Styles.button_localizar(on_click=buscar_produtos)
     
     # Dropdown de filtro
-    filtro_dropdown = Styles.dropdown(
+    filtro_dropdown = ft.Dropdown(
         label="Filtro",
-        options=["Todos", "Medicamentos", "Higiene", "Cosméticos"],
-        value="Todos"
+        options=[
+            ft.dropdown.Option("Todos"),
+            ft.dropdown.Option("Medicamentos & Saúde"),
+            ft.dropdown.Option("Vitaminas & Suplementos"),
+            ft.dropdown.Option("Beleza & Skincare"),
+            ft.dropdown.Option("Higiene Pessoal"),
+            ft.dropdown.Option("Bebê & Infantil"),
+            ft.dropdown.Option("Nutrição & Esporte"),
+            ft.dropdown.Option("Alimentação Saudável"),
+            ft.dropdown.Option("Casa & Limpeza"),
+            ft.dropdown.Option("Pet Care"),
+            ft.dropdown.Option("Aparelhos & Dispositivos"),
+            ft.dropdown.Option("Outros"),
+        ],
+        value="Todos",
+        border_color=Colors.BORDER_GRAY,
+        on_change=buscar_produtos,
+        # Remove a largura fixa para se adaptar ao conteúdo
     )
     
     # Container superior com pesquisa e filtro
@@ -555,7 +642,7 @@ def EstoqueView(page: ft.Page):
     btn_incluir = Styles.button_primary("Incluir Produto", ft.icons.ADD_CIRCLE, modal_incluir_produto)
     btn_alterar = Styles.button_warning("Alterar Produto", ft.icons.EDIT, modal_alterar_produto)
     btn_excluir = Styles.button_danger("Excluir Produto", ft.icons.DELETE, modal_excluir_produto)
-    btn_atualizar = Styles.button_info("Atualizar Lista", ft.icons.REFRESH, lambda _: carregar_produtos())
+    btn_atualizar = Styles.button_info("Atualizar Lista", ft.icons.REFRESH, lambda _: buscar_produtos(None))
     btn_sair = Styles.button_danger("Sair", ft.icons.LOGOUT, lambda _: page.go("/"))
     
     # Sidebar
