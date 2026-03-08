@@ -5,10 +5,8 @@ from app.views.styles.theme import Colors, Sizes, Styles
 def HomeView(page: ft.Page):
     """Tela principal do PDV Santa Ana"""
     
-    # Estado do turno (futuramente virá do banco de dados)
     turno_aberto = False
     
-    # Modal de Abrir Turno
     def abrir_turno_modal(e):
         valor_inicial_input = Styles.text_field(
             "Valor inicial do caixa (R$)",
@@ -52,18 +50,8 @@ def HomeView(page: ft.Page):
                 width=400,
             ),
             actions=[
-                ft.ElevatedButton(
-                    "Cancelar",
-                    bgcolor=Colors.BRAND_RED,
-                    color=Colors.TEXT_WHITE,
-                    on_click=cancelar,
-                ),
-                ft.ElevatedButton(
-                    "Confirmar",
-                    bgcolor=Colors.BRAND_GREEN,
-                    color=Colors.TEXT_WHITE,
-                    on_click=confirmar_abertura,
-                ),
+                ft.ElevatedButton("Cancelar", bgcolor=Colors.BRAND_RED, color=Colors.TEXT_WHITE, on_click=cancelar),
+                ft.ElevatedButton("Confirmar", bgcolor=Colors.BRAND_GREEN, color=Colors.TEXT_WHITE, on_click=confirmar_abertura),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
@@ -72,27 +60,18 @@ def HomeView(page: ft.Page):
         modal.open = True
         page.update()
     
-    # Função interna para criar os botões do menu superior
     def nav_button(text, icon, route=None, on_click_custom=None):
         def on_click(e):
             if on_click_custom:
                 on_click_custom(e)
             elif route:
                 page.go(route)
-            else:
-                print(f"Botão {text} clicado!")
         
         return ft.Container(
             content=ft.Column(
                 controls=[
                     ft.Icon(icon, color=Colors.TEXT_WHITE, size=Sizes.ICON_LARGE),
-                    ft.Text(
-                        text, 
-                        color=Colors.TEXT_WHITE,
-                        weight=ft.FontWeight.BOLD, 
-                        size=Sizes.FONT_MEDIUM,
-                        text_align=ft.TextAlign.CENTER
-                    ),
+                    ft.Text(text, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD, size=Sizes.FONT_MEDIUM, text_align=ft.TextAlign.CENTER),
                 ],
                 alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -103,19 +82,18 @@ def HomeView(page: ft.Page):
             height=100,
             border_radius=Sizes.BORDER_RADIUS_XLARGE,
             ink=True,
-            on_click=on_click
+            on_click=on_click,
         )
 
-    # 1. HEADER - Botões de Navegação
     header = ft.Container(
         content=ft.Row(
             controls=[
-                nav_button("Vendas", ft.icons.SHOPPING_BAG, route="/vendas"),
-                nav_button("Estoque", ft.icons.INVENTORY_2, route="/estoque"),
-                nav_button("Abrir/fechar Turno", ft.icons.LOGIN, on_click_custom=abrir_turno_modal),
-                nav_button("Relatórios", ft.icons.BAR_CHART, route="/relatorios"),
-                nav_button("Entidades", ft.icons.PERSON, route="/entidades"),
-                nav_button("Histórico", ft.icons.HISTORY, route="/historico"),
+                nav_button("Vendas",           ft.icons.SHOPPING_BAG, route="/vendas"),
+                nav_button("Estoque",          ft.icons.INVENTORY_2,  route="/estoque"),
+                nav_button("Abrir/fechar Turno", ft.icons.LOGIN,      on_click_custom=abrir_turno_modal),
+                nav_button("Relatórios",       ft.icons.BAR_CHART,    route="/relatorios"),
+                nav_button("Entidades",        ft.icons.PERSON,       route="/entidades"),
+                nav_button("Histórico",        ft.icons.HISTORY,      route="/historico"),
             ],
             alignment=ft.MainAxisAlignment.CENTER,
             spacing=Sizes.SPACING_LARGE,
@@ -124,7 +102,6 @@ def HomeView(page: ft.Page):
         border=ft.border.only(bottom=ft.BorderSide(2, Colors.BORDER_MEDIUM)),
     )
 
-    # 2. BODY - Logo Centralizada
     body = ft.Container(
         content=ft.Image(
             src="app/views/assets/logo_santa_ana.png",
@@ -135,15 +112,17 @@ def HomeView(page: ft.Page):
         alignment=ft.alignment.center,
     )
 
-    # 3. FOOTER - Barra de Status
+    # ── Footer com data real ──────────────────────────────────────────────────
+    data_atual = datetime.now().strftime("%d/%m/%Y")
+
     footer = ft.Container(
         content=ft.Row(
             controls=[
                 ft.Row(
                     controls=[
-                        ft.Text("Usuário: Fulano", size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
-                        ft.Text("Data: 00/00/0000", size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
-                        ft.Text("Turno: Aberto", size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
+                        ft.Text("Usuário: Fulano",           size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
+                        ft.Text(f"Data: {data_atual}",       size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
+                        ft.Text("Turno: Aberto",             size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
                     ],
                     spacing=Sizes.SPACING_XLARGE,
                 ),
@@ -151,7 +130,7 @@ def HomeView(page: ft.Page):
                     content=ft.Row(
                         [
                             ft.Icon(ft.icons.LOGOUT, size=Sizes.ICON_SMALL, color=Colors.TEXT_WHITE),
-                            ft.Text("Sair", size=Sizes.FONT_MEDIUM, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD)
+                            ft.Text("Sair", size=Sizes.FONT_MEDIUM, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
                         ],
                         alignment=ft.MainAxisAlignment.CENTER,
                         spacing=Sizes.SPACING_MEDIUM,
@@ -161,7 +140,7 @@ def HomeView(page: ft.Page):
                     height=50,
                     width=120,
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=Sizes.BORDER_RADIUS_MEDIUM)),
-                    on_click=lambda _: page.window_close()
+                    on_click=lambda _: page.window_close(),
                 ),
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -170,7 +149,6 @@ def HomeView(page: ft.Page):
         border=ft.border.only(top=ft.BorderSide(2, Colors.BORDER_MEDIUM)),
     )
 
-    # Retorna o Container completo
     return ft.Container(
         content=ft.Column(
             controls=[header, body, footer],
