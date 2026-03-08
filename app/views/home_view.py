@@ -88,12 +88,12 @@ def HomeView(page: ft.Page):
     header = ft.Container(
         content=ft.Row(
             controls=[
-                nav_button("Vendas",           ft.icons.SHOPPING_BAG, route="/vendas"),
-                nav_button("Estoque",          ft.icons.INVENTORY_2,  route="/estoque"),
-                nav_button("Abrir/fechar Turno", ft.icons.LOGIN,      on_click_custom=abrir_turno_modal),
-                nav_button("Relatórios",       ft.icons.BAR_CHART,    route="/relatorios"),
-                nav_button("Entidades",        ft.icons.PERSON,       route="/entidades"),
-                nav_button("Histórico",        ft.icons.HISTORY,      route="/historico"),
+                nav_button("Vendas",             ft.icons.SHOPPING_BAG,  route="/vendas"),
+                nav_button("Estoque",            ft.icons.INVENTORY_2,   route="/estoque"),
+                nav_button("Abrir/fechar Turno", ft.icons.LOGIN,         on_click_custom=abrir_turno_modal),
+                nav_button("Relatórios",         ft.icons.BAR_CHART,     route="/relatorios"),
+                nav_button("Usuários",           ft.icons.PEOPLE,        route="/usuarios"),
+                nav_button("Histórico",          ft.icons.HISTORY,       route="/historico"),
             ],
             alignment=ft.MainAxisAlignment.CENTER,
             spacing=Sizes.SPACING_LARGE,
@@ -104,7 +104,7 @@ def HomeView(page: ft.Page):
 
     body = ft.Container(
         content=ft.Image(
-            src="app/views/assets/logo_santa_ana.png",
+            src="views/assets/logo_santa_ana.png",
             width=450,
             fit=ft.ImageFit.CONTAIN,
         ),
@@ -112,7 +112,6 @@ def HomeView(page: ft.Page):
         alignment=ft.alignment.center,
     )
 
-    # ── Footer com data real ──────────────────────────────────────────────────
     data_atual = datetime.now().strftime("%d/%m/%Y")
 
     footer = ft.Container(
@@ -120,9 +119,9 @@ def HomeView(page: ft.Page):
             controls=[
                 ft.Row(
                     controls=[
-                        ft.Text("Usuário: Fulano",           size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
-                        ft.Text(f"Data: {data_atual}",       size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
-                        ft.Text("Turno: Aberto",             size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
+                        ft.Text("Usuário: Fulano",       size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
+                        ft.Text(f"Data: {data_atual}",   size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
+                        ft.Text("Turno: Aberto",         size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
                     ],
                     spacing=Sizes.SPACING_XLARGE,
                 ),
@@ -140,7 +139,7 @@ def HomeView(page: ft.Page):
                     height=50,
                     width=120,
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=Sizes.BORDER_RADIUS_MEDIUM)),
-                    on_click=lambda _: page.window_close(),
+                    on_click=lambda _: page.go("/login"),
                 ),
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,

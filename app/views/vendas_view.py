@@ -1118,32 +1118,33 @@ def VendasView(page: ft.Page):
         
         modal = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Cancelar Venda Concluída", size=Sizes.FONT_XLARGE, weight=ft.FontWeight.BOLD),
+            title=ft.Text("Cancelar Venda Concluída", size=Sizes.FONT_LARGE, weight=ft.FontWeight.BOLD),
             content=ft.Container(
+                width=300,
                 content=ft.Column(
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    spacing=8,
                     controls=[
-                        ft.Icon(ft.icons.WARNING, size=80, color=Colors.BRAND_RED),
+                        ft.Icon(ft.icons.WARNING, size=44, color=Colors.BRAND_RED),
                         ft.Text(
                             "Esta ação irá cancelar uma venda já concluída!",
-                            size=Sizes.FONT_MEDIUM,
+                            size=Sizes.FONT_SMALL,
                             color=Colors.BRAND_RED,
                             weight=ft.FontWeight.BOLD,
                             text_align=ft.TextAlign.CENTER,
                         ),
-                        ft.Divider(),
-                        ft.Text("Informe o ID da venda:", size=Sizes.FONT_MEDIUM),
+                        ft.Divider(height=4),
+                        ft.Text("Informe o ID da venda:", size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY),
                         input_id_venda,
-                        ft.Text("Turno atual: Turno 1", size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY, italic=True),
+                        ft.Text("Turno atual: Turno 1", size=11, color=Colors.TEXT_GRAY, italic=True),
                     ],
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=Sizes.SPACING_MEDIUM,
                 ),
-                width=400,
             ),
             actions=[
-                ft.TextButton("Cancelar", on_click=fechar_modal),
+                ft.TextButton("Voltar", on_click=fechar_modal),
                 ft.ElevatedButton(
-                    "Confirmar Cancelamento",
+                    "Confirmar",
                     bgcolor=Colors.BRAND_RED,
                     color=Colors.TEXT_WHITE,
                     on_click=confirmar_cancelamento,

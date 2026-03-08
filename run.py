@@ -8,24 +8,35 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from app.views.home_view import HomeView
 from app.views.vendas_view import VendasView
 from app.views.estoque_view import EstoqueView
-from app.views.entidades_view import EntidadesView
+from app.views.usuarios_view import UsuariosView
 from app.views.historico_view import HistoricoView
 from app.views.relatorios_view import RelatoriosView
+from app.views.login_view import LoginView
 
 def main(page: ft.Page):
     page.title = "PDV Santa Ana"
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.window.maximized = True  # ← Corrigido
+    page.window.maximized = True
     page.padding = 0
-    
+
     # Define a raiz para imagens
     page.assets_dir = "app"
 
     def route_change(e):
         page.views.clear()
-        
+
+        # Rota Login
+        if page.route == "/login":
+            page.views.append(
+                ft.View(
+                    "/login",
+                    controls=[LoginView(page)],
+                    padding=0,
+                )
+            )
+
         # Rota Home
-        if page.route == "/":
+        elif page.route == "/":
             page.views.append(
                 ft.View(
                     "/",
@@ -33,7 +44,7 @@ def main(page: ft.Page):
                     padding=0,
                 )
             )
-        
+
         # Rota Vendas
         elif page.route == "/vendas":
             page.views.append(
@@ -54,12 +65,12 @@ def main(page: ft.Page):
                 )
             )
 
-        # Rota Entidades
-        elif page.route == "/entidades":
+        # Rota Usuários
+        elif page.route == "/usuarios":
             page.views.append(
                 ft.View(
-                    "/entidades",
-                    controls=[EntidadesView(page)],
+                    "/usuarios",
+                    controls=[UsuariosView(page)],
                     padding=0,
                 )
             )
@@ -73,6 +84,7 @@ def main(page: ft.Page):
                     padding=0,
                 )
             )
+
         # Rota Relatórios
         elif page.route == "/relatorios":
             page.views.append(
@@ -86,7 +98,7 @@ def main(page: ft.Page):
         page.update()
 
     page.on_route_change = route_change
-    page.go("/")
+    page.go("/login")  # ← inicia sempre pelo login
 
 if __name__ == "__main__":
     ft.app(target=main)
