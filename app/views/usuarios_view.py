@@ -110,6 +110,7 @@ def UsuariosView(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
+        page.overlay.clear()
         page.overlay.append(modal)
         modal.open = True
         page.update()
@@ -176,6 +177,7 @@ def UsuariosView(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
+        page.overlay.clear()
         page.overlay.append(modal)
         modal.open = True
         page.update()
@@ -242,6 +244,7 @@ def UsuariosView(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
+        page.overlay.clear()
         page.overlay.append(modal)
         modal.open = True
         page.update()
@@ -308,6 +311,7 @@ def UsuariosView(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
+        page.overlay.clear()
         page.overlay.append(modal)
         modal.open = True
         page.update()

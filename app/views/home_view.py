@@ -104,7 +104,7 @@ def HomeView(page: ft.Page):
 
     body = ft.Container(
         content=ft.Image(
-            src="views/assets/logo_santa_ana.png",
+            src="app/views/assets/logo_santa_ana.png",
             width=450,
             fit=ft.ImageFit.CONTAIN,
         ),

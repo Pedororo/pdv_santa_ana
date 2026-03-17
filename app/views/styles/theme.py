@@ -56,7 +56,7 @@ class Sizes:
     
     # Dimensões de botões
     BUTTON_HEIGHT = 60
-    BUTTON_WIDTH = 240
+    BUTTON_WIDTH = 216
     BUTTON_SMALL_HEIGHT = 50
     BUTTON_SMALL_WIDTH = 150
     
@@ -89,88 +89,65 @@ class Sizes:
 
 
 # ============================================================================
+# HELPER INTERNO
+# ============================================================================
+
+def _make_button(text, icon, on_click, bgcolor, width, height):
+    """Cria botão padrão da sidebar com texto que nunca transborda."""
+    return ft.ElevatedButton(
+        content=ft.Row(
+            [
+                ft.Icon(icon, size=Sizes.ICON_MEDIUM, color=Colors.TEXT_WHITE),
+                ft.Text(
+                    text,
+                    size=Sizes.FONT_LARGE,
+                    color=Colors.TEXT_WHITE,
+                    weight=ft.FontWeight.BOLD,
+                    no_wrap=False,
+                    text_align=ft.TextAlign.CENTER,
+                    max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+            spacing=Sizes.SPACING_SMALL,
+            tight=True,
+        ),
+        bgcolor=bgcolor,
+        width=width or Sizes.BUTTON_WIDTH,
+        height=height or Sizes.BUTTON_HEIGHT,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=Sizes.BORDER_RADIUS_LARGE)),
+        on_click=on_click,
+    )
+
+
+# ============================================================================
 # ESTILOS DE COMPONENTES
 # ============================================================================
 
 class Styles:
     """Estilos prontos para componentes comuns"""
-    
+
     @staticmethod
     def button_primary(text, icon, on_click, width=None, height=None):
         """Botão primário verde (ações positivas)"""
-        return ft.ElevatedButton(
-            content=ft.Row(
-                [
-                    ft.Icon(icon, size=Sizes.ICON_MEDIUM, color=Colors.TEXT_WHITE),
-                    ft.Text(text, size=Sizes.FONT_LARGE, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD)
-                ],
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=Sizes.SPACING_MEDIUM,
-            ),
-            bgcolor=Colors.BRAND_GREEN,
-            width=width or Sizes.BUTTON_WIDTH,
-            height=height or Sizes.BUTTON_HEIGHT,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=Sizes.BORDER_RADIUS_LARGE)),
-            on_click=on_click
-        )
-    
+        return _make_button(text, icon, on_click, Colors.BRAND_GREEN, width, height)
+
     @staticmethod
     def button_danger(text, icon, on_click, width=None, height=None):
         """Botão vermelho (ações destrutivas)"""
-        return ft.ElevatedButton(
-            content=ft.Row(
-                [
-                    ft.Icon(icon, size=Sizes.ICON_MEDIUM, color=Colors.TEXT_WHITE),
-                    ft.Text(text, size=Sizes.FONT_LARGE, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD)
-                ],
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=Sizes.SPACING_MEDIUM,
-            ),
-            bgcolor=Colors.BRAND_RED,
-            width=width or Sizes.BUTTON_WIDTH,
-            height=height or Sizes.BUTTON_HEIGHT,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=Sizes.BORDER_RADIUS_LARGE)),
-            on_click=on_click
-        )
-    
+        return _make_button(text, icon, on_click, Colors.BRAND_RED, width, height)
+
     @staticmethod
     def button_warning(text, icon, on_click, width=None, height=None):
         """Botão laranja (ações de edição)"""
-        return ft.ElevatedButton(
-            content=ft.Row(
-                [
-                    ft.Icon(icon, size=Sizes.ICON_MEDIUM, color=Colors.TEXT_WHITE),
-                    ft.Text(text, size=Sizes.FONT_LARGE, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD)
-                ],
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=Sizes.SPACING_MEDIUM,
-            ),
-            bgcolor=Colors.BRAND_ORANGE,
-            width=width or Sizes.BUTTON_WIDTH,
-            height=height or Sizes.BUTTON_HEIGHT,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=Sizes.BORDER_RADIUS_LARGE)),
-            on_click=on_click
-        )
-    
+        return _make_button(text, icon, on_click, Colors.BRAND_ORANGE, width, height)
+
     @staticmethod
     def button_info(text, icon, on_click, width=None, height=None):
         """Botão azul (informações)"""
-        return ft.ElevatedButton(
-            content=ft.Row(
-                [
-                    ft.Icon(icon, size=Sizes.ICON_MEDIUM, color=Colors.TEXT_WHITE),
-                    ft.Text(text, size=Sizes.FONT_LARGE, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD)
-                ],
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=Sizes.SPACING_MEDIUM,
-            ),
-            bgcolor=Colors.BRAND_BLUE,
-            width=width or Sizes.BUTTON_WIDTH,
-            height=height or Sizes.BUTTON_HEIGHT,
-            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=Sizes.BORDER_RADIUS_LARGE)),
-            on_click=on_click
-        )
-    
+        return _make_button(text, icon, on_click, Colors.BRAND_BLUE, width, height)
+
     @staticmethod
     def button_localizar(on_click):
         """Botão padrão 'Localizar'"""
@@ -183,9 +160,9 @@ class Styles:
                 bgcolor=Colors.BG_WHITE,
                 color=Colors.TEXT_BLACK,
             ),
-            on_click=on_click
+            on_click=on_click,
         )
-    
+
     @staticmethod
     def text_field(label, width, **kwargs):
         """Campo de texto padrão"""
@@ -193,9 +170,9 @@ class Styles:
             label=label,
             width=width,
             border_color=Colors.BORDER_GRAY,
-            **kwargs
+            **kwargs,
         )
-    
+
     @staticmethod
     def dropdown(label, options, width=None, value=None, **kwargs):
         """Dropdown padrão"""
@@ -205,9 +182,9 @@ class Styles:
             options=[ft.dropdown.Option(opt) for opt in options],
             value=value,
             border_color=Colors.BORDER_GRAY,
-            **kwargs
+            **kwargs,
         )
-    
+
     @staticmethod
     def table_header(columns):
         """Header padrão de tabela"""
@@ -218,7 +195,7 @@ class Styles:
                     ft.Container(
                         ft.Text(text, weight=ft.FontWeight.BOLD, size=Sizes.FONT_MEDIUM, text_align=ft.TextAlign.CENTER),
                         expand=True,
-                        alignment=ft.alignment.center
+                        alignment=ft.alignment.center,
                     )
                 )
             else:
@@ -226,17 +203,17 @@ class Styles:
                     ft.Container(
                         ft.Text(text, weight=ft.FontWeight.BOLD, size=Sizes.FONT_MEDIUM, text_align=ft.TextAlign.CENTER),
                         width=width,
-                        alignment=ft.alignment.center
+                        alignment=ft.alignment.center,
                     )
                 )
-        
+
         return ft.Container(
             content=ft.Row(controls=controls, spacing=0),
             bgcolor=Colors.BG_PINK_LIGHT,
             padding=10,
             border=ft.border.all(1, Colors.BORDER_BLACK),
         )
-    
+
     @staticmethod
     def search_section(pesquisa_input, btn_localizar, filtro_dropdown):
         """Seção de pesquisa padrão"""
@@ -250,7 +227,7 @@ class Styles:
             border=ft.border.all(2, Colors.BORDER_BLACK),
             border_radius=Sizes.BORDER_RADIUS_SMALL,
         )
-    
+
     @staticmethod
     def sidebar(buttons):
         """Sidebar padrão"""

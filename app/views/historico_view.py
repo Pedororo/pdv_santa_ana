@@ -9,6 +9,18 @@ def HistoricoView(page: ft.Page):
 
     todas_vendas = []
 
+    # UTC-3 Fortaleza
+    _UTC_OFFSET = timedelta(hours=-3)
+
+    def utc_to_local(data_str):
+        """Converte string UTC para horário de Fortaleza (UTC-3)"""
+        try:
+            dt = datetime.fromisoformat(data_str.replace("Z", "+00:00"))
+            dt_local = dt + _UTC_OFFSET
+            return dt_local
+        except Exception:
+            return None
+
     # ============================================================================
     # FUNÇÕES AUXILIARES
     # ============================================================================
@@ -37,7 +49,8 @@ def HistoricoView(page: ft.Page):
         for v in vendas:
             data_str = v.get("data_venda") or v.get("created_at") or ""
             try:
-                data_venda = datetime.fromisoformat(data_str[:10]).date()
+                dt_local = utc_to_local(data_str)
+                data_venda = dt_local.date() if dt_local else datetime.fromisoformat(data_str[:10]).date()
                 if data_venda >= limite:
                     resultado.append(v)
             except Exception:
@@ -68,7 +81,16 @@ def HistoricoView(page: ft.Page):
             page.update()
 
             resultado = VendasAPI.cancelar_venda(venda_id)
-            if resultado:
+
+            if resultado and "erro" in resultado:
+                detalhe = resultado["erro"]
+                msg = "Esta venda já foi cancelada." if "cancelad" in detalhe.lower() else                       f"Não foi possível cancelar: {detalhe}"
+                btn_confirmar.disabled = False
+                btn_confirmar.text = "Sim, Cancelar"
+                page.snack_bar = ft.SnackBar(content=ft.Text(msg), bgcolor=Colors.BRAND_ORANGE)
+                page.snack_bar.open = True
+                page.update()
+            elif resultado:
                 modal.open = False
                 page.snack_bar = ft.SnackBar(content=ft.Text(f"Venda #{venda_id} cancelada!"), bgcolor=Colors.BRAND_GREEN)
                 page.snack_bar.open = True
@@ -76,7 +98,7 @@ def HistoricoView(page: ft.Page):
             else:
                 btn_confirmar.disabled = False
                 btn_confirmar.text = "Sim, Cancelar"
-                page.snack_bar = ft.SnackBar(content=ft.Text("Erro ao cancelar venda!"), bgcolor=Colors.BRAND_RED)
+                page.snack_bar = ft.SnackBar(content=ft.Text("Erro ao cancelar venda. Tente novamente."), bgcolor=Colors.BRAND_RED)
                 page.snack_bar.open = True
                 page.update()
 
@@ -116,6 +138,7 @@ def HistoricoView(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
+        page.overlay.clear()
         page.overlay.append(modal)
         modal.open = True
         page.update()
@@ -136,43 +159,53 @@ def HistoricoView(page: ft.Page):
         )
 
         def salvar(e):
+            if not input_pagamento.value:
+                page.snack_bar = ft.SnackBar(content=ft.Text("Selecione a forma de pagamento!"), bgcolor=Colors.BRAND_RED)
+                page.snack_bar.open = True
+                page.update()
+                return
+
             btn_salvar.disabled = True
             btn_salvar.text = "Salvando..."
             page.update()
 
-            tipo_normalizado = VendasAPI.normalizar_pagamento(input_pagamento.value)
+            try:
+                tipo_normalizado = VendasAPI.normalizar_pagamento(input_pagamento.value)
 
-            # Usa atualizar_pagamento (PUT /vendas/{id}/pagamento)
-            # valor_recebido deve ser > 0 — usa total como fallback se não houver
-            vr_hist = float(venda.get("valor_recebido") or 0)
-            if vr_hist <= 0:
-                vr_hist = float(venda.get("total") or venda.get("valor_total") or 0)
-            # garante pelo menos 0.01 para não violar o gt=0 do schema
-            vr_hist = max(round(vr_hist, 2), 0.01)
+                vr_hist = float(venda.get("valor_recebido") or 0)
+                if vr_hist <= 0:
+                    vr_hist = float(venda.get("total") or venda.get("valor_total") or 0)
+                vr_hist = max(round(vr_hist, 2), 0.01)
 
-            payload = {
-                "tipo": tipo_normalizado,
-                "valor_recebido": vr_hist,
-            }
+                payload = {"tipo": tipo_normalizado, "valor_recebido": vr_hist}
 
-            # Tenta atualizar (PUT); se não existir pagamento, registra (POST)
-            resultado = VendasAPI.atualizar_pagamento(venda_id, payload)
-            if not resultado:
-                resultado = VendasAPI.registrar_pagamento(venda_id, payload)
+                resultado = VendasAPI.atualizar_pagamento(venda_id, payload)
+                if not resultado:
+                    resultado = VendasAPI.registrar_pagamento(venda_id, payload)
 
-            if resultado:
-                modal.open = False
-                page.snack_bar = ft.SnackBar(
-                    content=ft.Text(f"Pagamento da venda #{venda_id} atualizado!"),
-                    bgcolor=Colors.BRAND_GREEN,
-                )
-                page.snack_bar.open = True
-                carregar_vendas()
-            else:
+                if resultado:
+                    modal.open = False
+                    page.snack_bar = ft.SnackBar(
+                        content=ft.Text(f"Pagamento da venda #{venda_id} atualizado!"),
+                        bgcolor=Colors.BRAND_GREEN,
+                    )
+                    page.snack_bar.open = True
+                    carregar_vendas()
+                else:
+                    btn_salvar.disabled = False
+                    btn_salvar.text = "Salvar"
+                    page.snack_bar = ft.SnackBar(
+                        content=ft.Text("Erro ao atualizar pagamento! Verifique se a venda está finalizada."),
+                        bgcolor=Colors.BRAND_RED,
+                    )
+                    page.snack_bar.open = True
+                    page.update()
+            except Exception as err:
+                print(f"Erro ao salvar pagamento: {err}")
                 btn_salvar.disabled = False
                 btn_salvar.text = "Salvar"
                 page.snack_bar = ft.SnackBar(
-                    content=ft.Text("Erro ao atualizar pagamento!"),
+                    content=ft.Text(f"Erro inesperado: {err}"),
                     bgcolor=Colors.BRAND_RED,
                 )
                 page.snack_bar.open = True
@@ -213,6 +246,7 @@ def HistoricoView(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
+        page.overlay.clear()
         page.overlay.append(modal)
         modal.open = True
         page.update()
@@ -226,8 +260,8 @@ def HistoricoView(page: ft.Page):
 
         data_str = venda.get("data_venda") or venda.get("created_at") or ""
         try:
-            dt = datetime.fromisoformat(data_str)
-            data_fmt = dt.strftime("%d/%m/%Y %H:%M:%S")
+            dt_local = utc_to_local(data_str)
+            data_fmt = dt_local.strftime("%d/%m/%Y %H:%M:%S") if dt_local else data_str
         except Exception:
             data_fmt = data_str
 
@@ -350,7 +384,10 @@ def HistoricoView(page: ft.Page):
 
     def abrir_menu_acoes(venda):
         """Abre dialog com as ações da venda"""
-        ja_cancelada = (venda.get("status") or "").lower() == "cancelada"
+        status_venda = (venda.get("status") or "").upper()
+        ja_cancelada  = status_venda == "CANCELADA"
+        esta_aberta   = status_venda == "ABERTA"
+        pode_cancelar = status_venda == "CONCLUIDA"
 
         def fechar(e):
             menu.open = False
@@ -359,13 +396,36 @@ def HistoricoView(page: ft.Page):
         def acao_editar(e):
             menu.open = False
             page.update()
+            if ja_cancelada:
+                page.snack_bar = ft.SnackBar(content=ft.Text("Não é possível editar pagamento de venda cancelada."), bgcolor=Colors.BRAND_ORANGE)
+                page.snack_bar.open = True
+                page.update()
+                return
+            if esta_aberta:
+                page.snack_bar = ft.SnackBar(content=ft.Text("Não é possível editar pagamento de venda ainda em aberto."), bgcolor=Colors.BRAND_ORANGE)
+                page.snack_bar.open = True
+                page.update()
+                return
             modal_editar_pagamento(venda)
 
         def acao_cancelar(e):
-            if ja_cancelada:
-                return
             menu.open = False
             page.update()
+            if ja_cancelada:
+                page.snack_bar = ft.SnackBar(content=ft.Text("Esta venda já está cancelada."), bgcolor=Colors.BRAND_ORANGE)
+                page.snack_bar.open = True
+                page.update()
+                return
+            if esta_aberta:
+                page.snack_bar = ft.SnackBar(content=ft.Text("Vendas em aberto não podem ser canceladas pelo histórico."), bgcolor=Colors.BRAND_ORANGE)
+                page.snack_bar.open = True
+                page.update()
+                return
+            if not pode_cancelar:
+                page.snack_bar = ft.SnackBar(content=ft.Text(f"Venda com status '{status_venda}' não pode ser cancelada."), bgcolor=Colors.BRAND_ORANGE)
+                page.snack_bar.open = True
+                page.update()
+                return
             modal_cancelar(venda)
 
         def acao_reimprimir(e):
@@ -428,9 +488,9 @@ def HistoricoView(page: ft.Page):
     def criar_linha_venda(venda):
         data_str = venda.get("data_venda") or venda.get("created_at") or ""
         try:
-            dt = datetime.fromisoformat(data_str)
-            data_fmt = dt.strftime("%d/%m/%Y")
-            hora_fmt = dt.strftime("%H:%M:%S")
+            dt_local = utc_to_local(data_str)
+            data_fmt = dt_local.strftime("%d/%m/%Y") if dt_local else data_str[:10]
+            hora_fmt = dt_local.strftime("%H:%M:%S") if dt_local else (data_str[11:19] if len(data_str) > 10 else "")
         except Exception:
             data_fmt = data_str[:10]
             hora_fmt = data_str[11:19] if len(data_str) > 10 else ""

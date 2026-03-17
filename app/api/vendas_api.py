@@ -132,9 +132,16 @@ class VendasAPI:
     
     @staticmethod
     def cancelar_venda(venda_id: int) -> Optional[Dict]:
-        """Cancela uma venda"""
+        """Cancela uma venda. Retorna dict com 'erro' se o backend rejeitar (400)."""""
         try:
             response = requests.patch(f"{VendasAPI.BASE_URL}/vendas/{venda_id}/cancelar")
+            if response.status_code == 400:
+                try:
+                    detail = response.json().get("detail", "Venda não pode ser cancelada.")
+                except Exception:
+                    detail = response.text or "Venda não pode ser cancelada."
+                print(f"Erro ao cancelar venda {venda_id}: {detail}")
+                return {"erro": detail}
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
