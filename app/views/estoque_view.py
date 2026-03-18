@@ -12,6 +12,7 @@ def EstoqueView(page: ft.Page):
     categorias_disponiveis = []
     ordem_id_crescente = True  # controla a ordenação da coluna ID
     modo_inativos = {"ativo": False}  # toggle entre tabela ativa/inativa
+    cache_inativos = {"lista": []}    # cache dos produtos inativos para validação
 
     # ============================================================================
     # FUNÇÃO PARA CARREGAR CATEGORIAS
@@ -103,6 +104,7 @@ def EstoqueView(page: ft.Page):
         """Carrega produtos inativos na tabela principal"""
         todos = ProdutosAPI.listar_produtos() or []
         inativos = [p for p in todos if not p.get("ativo", True)]
+        cache_inativos["lista"] = inativos  # atualiza cache para validação de cod. barras
         items_list.controls.clear()
 
         if not inativos:
@@ -286,16 +288,33 @@ def EstoqueView(page: ft.Page):
                 page.update()
                 return
 
-            # Verifica código de barras duplicado
+            # Verifica código de barras duplicado (ativos e inativos)
             cod = input_cod_barras.value.strip()
-            todos = ProdutosAPI.listar_produtos()
-            duplicado = next((p for p in (todos or []) if p.get("codigo_barra", "").strip() == cod), None)
-            if duplicado:
+            todos_ativos = ProdutosAPI.listar_produtos() or []
+
+            # Busca em ativos
+            duplicado_ativo  = next((p for p in todos_ativos if p.get("codigo_barra", "").strip() == cod), None)
+            # Busca em inativos via cache (populado quando toggle de inativos é acionado)
+            duplicado_inativo = next((p for p in cache_inativos["lista"] if p.get("codigo_barra", "").strip() == cod), None)
+
+            if duplicado_ativo:
                 input_cod_barras.border_color = Colors.BRAND_ORANGE
-                input_cod_barras.error_text = f"Já em uso por: {duplicado.get('nome', 'outro produto')}"
+                input_cod_barras.error_text   = f"Já em uso por: {duplicado_ativo.get('nome', 'outro produto')}"
                 page.snack_bar = ft.SnackBar(
-                    content=ft.Text(f"⚠ Código de barras já cadastrado em '{duplicado.get('nome')}'!"),
+                    content=ft.Text(f"⚠ Código de barras já cadastrado no produto '{duplicado_ativo.get('nome')}'!"),
                     bgcolor=Colors.BRAND_ORANGE,
+                )
+                page.snack_bar.open = True
+                btn_salvar_prod.disabled = False
+                btn_salvar_prod.text = "Salvar"
+                page.update()
+                return
+            elif duplicado_inativo:
+                input_cod_barras.border_color = Colors.BRAND_RED
+                input_cod_barras.error_text   = f"Inativo: {duplicado_inativo.get('nome', 'produto inativo')}"
+                page.snack_bar = ft.SnackBar(
+                    content=ft.Text(f"⚠ Este código pertence ao produto INATIVO '{duplicado_inativo.get('nome')}'. Reative-o em vez de cadastrar um novo!"),
+                    bgcolor=Colors.BRAND_RED,
                 )
                 page.snack_bar.open = True
                 btn_salvar_prod.disabled = False
@@ -997,5 +1016,8 @@ def EstoqueView(page: ft.Page):
     )
 
     carregar_produtos()
+    carregar_inativos_na_tabela()  # popula cache de inativos para validação de cod. barras
+    if not modo_inativos["ativo"]:
+        carregar_produtos()  # volta para ativos após popular o cache
 
     return ft.Row(controls=[main_content, sidebar], spacing=0, expand=True)

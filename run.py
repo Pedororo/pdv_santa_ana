@@ -100,7 +100,7 @@ def main(page: ft.Page):
         page.update()
 
     page.window.prevent_close = True
-    page.on_window_event = lambda e: confirmar_saida(e) if e.data == "close" else None
+    page.window.on_event = lambda e: confirmar_saida(e) if e.data == "close" else None
     page.confirmar_saida = confirmar_saida  # expõe para views
 
     def route_change(e):

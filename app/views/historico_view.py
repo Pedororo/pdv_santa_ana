@@ -524,6 +524,8 @@ def HistoricoView(page: ft.Page):
                     ft.Container(ft.Text(f"R$ {total:.2f}", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_GREEN), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
                     ft.Container(ft.Text(pagamento_label, size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_BLUE), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
                     ft.Container(ft.Text(status.capitalize(), size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=status_cor(status)), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(venda.get("turno", "—"), size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY), width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(venda.get("vendedor", "Fulano"), size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
                     ft.Container(btn_menu, width=60, alignment=ft.alignment.center),
                 ],
                 spacing=0,
@@ -613,6 +615,8 @@ def HistoricoView(page: ft.Page):
         ("Valor Total", Sizes.TABLE_COL_LARGE),
         ("Pagamento",   Sizes.TABLE_COL_LARGE),
         ("Status",      Sizes.TABLE_COL_LARGE),
+        ("Turno",       Sizes.TABLE_COL_MEDIUM),
+        ("Vendedor",    Sizes.TABLE_COL_LARGE),
         ("Ações",       60),
     ])
 
