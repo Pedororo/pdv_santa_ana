@@ -2,15 +2,42 @@ import flet as ft
 from datetime import datetime
 from app.views.styles.theme import Colors, Sizes, Styles
 from app.api.vendas_api import VendasAPI
+from app.api.turno_api import TurnoAPI
+from app.api.auth_api import get_username
 
 def HomeView(page: ft.Page):
     """Tela principal do PDV Santa Ana"""
 
     turno = {
-        "aberto": False,
+        "aberto":        False,
+        "turno_id":      None,
         "valor_inicial": 0.0,
         "hora_abertura": None,
     }
+
+    def sincronizar_turno():
+        """Verifica no back se há turno ativo e sincroniza o estado"""
+        try:
+            ativo = TurnoAPI.get_turno_ativo()
+            if ativo:
+                turno["aberto"]        = True
+                turno["turno_id"]      = ativo.get("id")
+                turno["valor_inicial"] = float(ativo.get("valor_inicial", 0))
+                # Converte data_abertura para hora local
+                from datetime import timedelta
+                data_str = ativo.get("data_abertura", "")
+                try:
+                    from datetime import timezone
+                    dt = datetime.fromisoformat(data_str.replace("Z", "+00:00"))
+                    dt_local = dt + timedelta(hours=-3)
+                    turno["hora_abertura"] = dt_local.strftime("%H:%M")
+                except Exception:
+                    turno["hora_abertura"] = data_str[11:16] if len(data_str) > 10 else "—"
+            else:
+                turno["aberto"]   = False
+                turno["turno_id"] = None
+        except Exception as ex:
+            print(f"[Home] Erro ao sincronizar turno: {ex}")
 
     # =========================================================================
     # INDICADOR DE TURNO NO FOOTER (referência mutável)
@@ -41,7 +68,10 @@ def HomeView(page: ft.Page):
             label.value   = "Turno: Fechado"
             label.color   = Colors.TEXT_BLACK
             label.weight  = ft.FontWeight.W_400
-        indicador_turno.update()
+        try:
+            indicador_turno.update()
+        except Exception:
+            pass  # Ainda não está na página
 
     def atualizar_botao_turno():
         """Troca ícone/texto do botão de turno no header"""
@@ -53,7 +83,10 @@ def HomeView(page: ft.Page):
             btn_turno_ref.content.controls[0].name  = ft.icons.PUNCH_CLOCK
             btn_turno_ref.content.controls[1].value = "Abrir Turno"
             btn_turno_ref.bgcolor                   = Colors.BRAND_RED
-        btn_turno_ref.update()
+        try:
+            btn_turno_ref.update()
+        except Exception:
+            pass  # Ainda não está na página
 
     # =========================================================================
     # MODAL ABRIR TURNO
@@ -83,7 +116,18 @@ def HomeView(page: ft.Page):
                 page.update()
                 return
 
+            resultado = TurnoAPI.abrir_turno(val)
+            if not resultado:
+                page.snack_bar = ft.SnackBar(
+                    content=ft.Text("Erro ao abrir turno! Tente novamente."),
+                    bgcolor=Colors.BRAND_RED,
+                )
+                page.snack_bar.open = True
+                page.update()
+                return
+
             turno["aberto"]        = True
+            turno["turno_id"]      = resultado.get("id")
             turno["valor_inicial"] = val
             turno["hora_abertura"] = datetime.now().strftime("%H:%M")
 
@@ -209,9 +253,24 @@ def HomeView(page: ft.Page):
                 page.update()
                 return
 
-            total_faturado = sum(totais.values())
-            esperado       = turno["valor_inicial"] + total_faturado
-            diferenca      = val_final - esperado
+            # Fecha turno no back
+            resultado_fechamento = TurnoAPI.fechar_turno(
+                valor_informado=val_final,
+                observacoes=obs_input.value.strip() if obs_input.value else None,
+            )
+            if not resultado_fechamento:
+                page.snack_bar = ft.SnackBar(
+                    content=ft.Text("Erro ao fechar turno! Tente novamente."),
+                    bgcolor=Colors.BRAND_RED,
+                )
+                page.snack_bar.open = True
+                page.update()
+                return
+
+            # Usa dados reais do back se disponíveis
+            total_faturado = resultado_fechamento.get("total_vendas", sum(totais.values()))
+            esperado       = resultado_fechamento.get("valor_esperado", turno["valor_inicial"] + total_faturado)
+            diferenca      = resultado_fechamento.get("diferenca", val_final - esperado)
             sinal     = "+" if diferenca >= 0 else ""
             cor_dif   = Colors.BRAND_GREEN if diferenca >= 0 else Colors.BRAND_RED
 
@@ -306,6 +365,8 @@ def HomeView(page: ft.Page):
 
             def fechar_resumo():
                 resumo.open = False
+                turno["aberto"]   = False
+                turno["turno_id"] = None
                 atualizar_indicador()
                 atualizar_botao_turno()
                 page.snack_bar = ft.SnackBar(
@@ -473,7 +534,7 @@ def HomeView(page: ft.Page):
             controls=[
                 ft.Row(
                     controls=[
-                        ft.Text("Usuário: Fulano", size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
+                        ft.Text(f"Usuário: {get_username() or '—'}", size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
                         ft.Text(f"Data: {datetime.now().strftime('%d/%m/%Y')}", size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
                         indicador_turno,
                     ],
@@ -501,6 +562,16 @@ def HomeView(page: ft.Page):
         padding=ft.padding.symmetric(horizontal=Sizes.SPACING_XLARGE, vertical=25),
         border=ft.border.only(top=ft.BorderSide(2, Colors.BORDER_MEDIUM)),
     )
+
+    def inicializar(e=None):
+        sincronizar_turno()
+        atualizar_indicador()
+        atualizar_botao_turno()
+        try: page.update()
+        except Exception: pass
+
+    # Agenda sincronização após a view estar na página
+    page.run_thread(inicializar)
 
     return ft.Container(
         content=ft.Column(

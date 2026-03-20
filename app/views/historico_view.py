@@ -2,6 +2,7 @@ import flet as ft
 from datetime import datetime, timedelta
 from app.views.styles.theme import Colors, Sizes, Styles
 from app.api.vendas_api import VendasAPI
+from app.api.turno_api import TurnoAPI
 
 
 def HistoricoView(page: ft.Page):
@@ -524,7 +525,15 @@ def HistoricoView(page: ft.Page):
                     ft.Container(ft.Text(f"R$ {total:.2f}", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_GREEN), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
                     ft.Container(ft.Text(pagamento_label, size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_BLUE), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
                     ft.Container(ft.Text(status.capitalize(), size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=status_cor(status)), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(venda.get("turno", "—"), size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY), width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center),
+                    ft.Container(
+                        content=ft.Text(
+                            f"#{venda.get('turno_id')}" if venda.get("turno_id") else "—",
+                            size=Sizes.FONT_SMALL,
+                            color=Colors.BRAND_BLUE if venda.get("turno_id") else Colors.TEXT_GRAY,
+                            weight=ft.FontWeight.BOLD if venda.get("turno_id") else ft.FontWeight.W_400,
+                        ),
+                        width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center,
+                    ),
                     ft.Container(ft.Text(venda.get("vendedor", "Fulano"), size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
                     ft.Container(btn_menu, width=60, alignment=ft.alignment.center),
                 ],
@@ -582,7 +591,7 @@ def HistoricoView(page: ft.Page):
         aplicar_filtros()
 
     # ============================================================================
-    # COMPONENTES
+    # COMPONENTES — ABA VENDAS
     # ============================================================================
 
     pesquisa_input = Styles.text_field("Pesquisar venda", Sizes.INPUT_XLARGE)
@@ -639,21 +648,332 @@ def HistoricoView(page: ft.Page):
         margin=ft.margin.only(top=Sizes.SPACING_LARGE),
     )
 
+    aba_vendas = ft.Container(
+        content=ft.Column(
+            controls=[top_section, table_container],
+            spacing=0, expand=True,
+        ),
+        expand=True,
+        padding=Sizes.SPACING_LARGE,
+        visible=True,
+    )
+
+    # ============================================================================
+    # ABA TURNOS
+    # ============================================================================
+
+    turnos_list = ft.Column(controls=[], spacing=0, scroll=ft.ScrollMode.AUTO)
+
+    turnos_header = Styles.table_header([
+        ("#",           Sizes.TABLE_COL_SMALL),
+        ("Abertura",    Sizes.TABLE_COL_LARGE),
+        ("Fechamento",  Sizes.TABLE_COL_LARGE),
+        ("Vendas",      Sizes.TABLE_COL_SMALL),
+        ("Total",       Sizes.TABLE_COL_LARGE),
+        ("Esperado",    Sizes.TABLE_COL_LARGE),
+        ("Informado",   Sizes.TABLE_COL_LARGE),
+        ("Diferença",   Sizes.TABLE_COL_LARGE),
+        ("Status",      Sizes.TABLE_COL_MEDIUM),
+    ])
+
+    def fmt_dt(data_str):
+        if not data_str:
+            return "—"
+        try:
+            dt = datetime.fromisoformat(data_str.replace("Z", "+00:00"))
+            dt_local = dt + _UTC_OFFSET
+            return dt_local.strftime("%d/%m/%Y %H:%M")
+        except Exception:
+            return data_str[:16] if len(data_str) >= 16 else data_str
+
+    def criar_linha_turno(turno):
+        status = (turno.get("status") or "").upper()
+        cor_status = Colors.BRAND_GREEN if status == "FECHADO" else Colors.BRAND_ORANGE
+        label_status = "Fechado" if status == "FECHADO" else "Aberto"
+
+        diferenca = turno.get("diferenca")
+        if diferenca is not None:
+            cor_dif = Colors.BRAND_GREEN if diferenca >= 0 else Colors.BRAND_RED
+            sinal   = "+" if diferenca >= 0 else ""
+            txt_dif = f"{sinal}R$ {abs(diferenca):.2f}"
+        else:
+            cor_dif = Colors.TEXT_GRAY
+            txt_dif = "—"
+
+        def ver_detalhes(e, t=turno):
+            modal_detalhe_turno(t)
+
+        return ft.Container(
+            content=ft.Row(
+                controls=[
+                    ft.Container(ft.Text(str(turno.get("id", "")),                              size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_SMALL,  alignment=ft.alignment.center),
+                    ft.Container(ft.Text(fmt_dt(turno.get("data_abertura")),                    size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_LARGE,  alignment=ft.alignment.center),
+                    ft.Container(ft.Text(fmt_dt(turno.get("data_fechamento")),                  size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(str(turno.get("quantidade_vendas", 0)),                size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD), width=Sizes.TABLE_COL_SMALL, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(f"R$ {float(turno.get('total_vendas', 0)):.2f}",      size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_GREEN), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(f"R$ {float(turno.get('valor_esperado') or 0):.2f}",  size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(f"R$ {float(turno.get('valor_informado') or 0):.2f}", size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(txt_dif,                                               size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=cor_dif), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
+                    ft.Container(
+                        content=ft.Container(
+                            content=ft.Text(label_status, size=11, weight=ft.FontWeight.BOLD, color=Colors.TEXT_WHITE),
+                            bgcolor=cor_status, border_radius=12,
+                            padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                        ),
+                        width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center,
+                    ),
+                ],
+                spacing=0,
+            ),
+            border=ft.border.only(bottom=ft.BorderSide(1, Colors.BORDER_LIGHT)),
+            padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            bgcolor=Colors.BG_WHITE,
+            ink=True,
+            on_click=ver_detalhes,
+        )
+
+    def modal_detalhe_turno(turno):
+        fp = turno.get("por_forma_pagamento") or {}
+        diferenca = turno.get("diferenca")
+        cor_dif = Colors.BRAND_GREEN if (diferenca or 0) >= 0 else Colors.BRAND_RED
+        sinal   = "+" if (diferenca or 0) >= 0 else ""
+
+        def fechar(e):
+            modal.open = False
+            page.update()
+
+        def linha(label, valor, cor=Colors.TEXT_BLACK, bold=False):
+            return ft.Row([
+                ft.Text(label, size=13, color=Colors.TEXT_GRAY, expand=True),
+                ft.Text(valor, size=13, color=cor, weight=ft.FontWeight.BOLD if bold else ft.FontWeight.W_400),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
+        modal = ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=12),
+            title=ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.PUNCH_CLOCK, color=Colors.TEXT_WHITE, size=22),
+                    ft.Text(f"Turno #{turno.get('id')}", size=18, weight=ft.FontWeight.BOLD, color=Colors.TEXT_WHITE),
+                ], spacing=8),
+                bgcolor=Colors.BRAND_BLUE,
+                padding=ft.padding.symmetric(horizontal=20, vertical=16),
+                border_radius=ft.border_radius.only(top_left=10, top_right=10),
+                margin=ft.margin.only(left=-24, right=-24, top=-24, bottom=0),
+            ),
+            content=ft.Container(
+                width=420,
+                content=ft.Column(
+                    tight=True, spacing=6, scroll=ft.ScrollMode.AUTO, height=380,
+                    controls=[
+                        ft.Container(height=8),
+                        ft.Text("PERÍODO", size=11, weight=ft.FontWeight.BOLD, color=Colors.TEXT_GRAY),
+                        linha("Abertura",   fmt_dt(turno.get("data_abertura"))),
+                        linha("Fechamento", fmt_dt(turno.get("data_fechamento"))),
+                        ft.Divider(height=12),
+                        ft.Text("VENDAS", size=11, weight=ft.FontWeight.BOLD, color=Colors.TEXT_GRAY),
+                        linha("Quantidade de vendas", str(turno.get("quantidade_vendas", 0))),
+                        linha("Total faturado", f"R$ {float(turno.get('total_vendas', 0)):.2f}", Colors.BRAND_GREEN, bold=True),
+                        ft.Divider(height=12),
+                        ft.Text("POR FORMA DE PAGAMENTO", size=11, weight=ft.FontWeight.BOLD, color=Colors.TEXT_GRAY),
+                        linha("💵 Dinheiro",       f"R$ {float(fp.get('Dinheiro', 0)):.2f}"),
+                        linha("💳 Cartão Débito",  f"R$ {float(fp.get('Cartão Débito', 0)):.2f}"),
+                        linha("💳 Cartão Crédito", f"R$ {float(fp.get('Cartão Crédito', 0)):.2f}"),
+                        linha("📱 Pix",            f"R$ {float(fp.get('Pix', 0)):.2f}"),
+                        ft.Divider(height=12),
+                        ft.Text("CONFERÊNCIA DE CAIXA", size=11, weight=ft.FontWeight.BOLD, color=Colors.TEXT_GRAY),
+                        linha("Valor inicial",      f"R$ {float(turno.get('valor_inicial', 0)):.2f}"),
+                        linha("Valor esperado",     f"R$ {float(turno.get('valor_esperado') or 0):.2f}", Colors.TEXT_BLACK, bold=True),
+                        linha("Valor informado",    f"R$ {float(turno.get('valor_informado') or 0):.2f}"),
+                        ft.Container(
+                            content=linha("Diferença", f"{sinal}R$ {abs(diferenca or 0):.2f}", cor_dif, bold=True),
+                            bgcolor="#F5F5F5", padding=ft.padding.symmetric(horizontal=12, vertical=8), border_radius=8,
+                        ),
+                        *([] if not turno.get("observacoes") else [
+                            ft.Divider(height=8),
+                            ft.Text("Observações:", size=12, color=Colors.TEXT_GRAY),
+                            ft.Text(turno.get("observacoes", ""), size=12, italic=True),
+                        ]),
+                    ],
+                ),
+            ),
+            actions=[ft.ElevatedButton(
+                "Fechar", bgcolor=Colors.BRAND_BLUE, color=Colors.TEXT_WHITE,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                on_click=fechar,
+            )],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
+        )
+        page.overlay.clear()
+        page.overlay.append(modal)
+        modal.open = True
+        page.update()
+
+    def carregar_turnos():
+        turnos_list.controls.clear()
+        turnos_list.controls.append(
+            ft.Container(
+                content=ft.Row([ft.ProgressRing(width=24, height=24), ft.Text("Carregando turnos...")],
+                               alignment=ft.MainAxisAlignment.CENTER, spacing=10),
+                padding=40, alignment=ft.alignment.center,
+            )
+        )
+        page.update()
+
+        historico = TurnoAPI.historico()
+
+        turnos_list.controls.clear()
+        if not historico:
+            turnos_list.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        ft.Icon(ft.icons.PUNCH_CLOCK, size=60, color=Colors.TEXT_GRAY),
+                        ft.Text("Nenhum turno registrado", size=Sizes.FONT_LARGE, color=Colors.TEXT_GRAY),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                    padding=50, alignment=ft.alignment.center,
+                )
+            )
+        else:
+            for t in sorted(historico, key=lambda x: x.get("id", 0), reverse=True):
+                turnos_list.controls.append(criar_linha_turno(t))
+        page.update()
+
+    aba_turnos = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Container(
+                    content=ft.Column([
+                        turnos_header,
+                        ft.Container(
+                            content=turnos_list,
+                            expand=True,
+                            border=ft.border.all(1, Colors.BORDER_BLACK),
+                            bgcolor=Colors.BG_WHITE,
+                        ),
+                    ], spacing=0),
+                    expand=True,
+                    margin=ft.margin.only(top=Sizes.SPACING_LARGE),
+                ),
+            ],
+            spacing=0, expand=True,
+        ),
+        expand=True,
+        padding=Sizes.SPACING_LARGE,
+        visible=False,
+    )
+
+    # ============================================================================
+    # TABS — alternância entre Vendas e Turnos
+    # ============================================================================
+    aba_atual = {"valor": "vendas"}
+
+    def btn_aba(label, valor, icone):
+        selecionado = aba_atual["valor"] == valor
+        def selecionar(e):
+            aba_atual["valor"] = valor
+            rebuild_tabs()
+            aba_vendas.visible  = valor == "vendas"
+            aba_turnos.visible  = valor == "turnos"
+            if valor == "turnos":
+                carregar_turnos()
+            aba_vendas.update()
+            aba_turnos.update()
+        return ft.Container(
+            content=ft.Row([
+                ft.Icon(icone, size=16, color=Colors.TEXT_WHITE if selecionado else Colors.TEXT_GRAY),
+                ft.Text(label, size=14,
+                        weight=ft.FontWeight.BOLD if selecionado else ft.FontWeight.W_400,
+                        color=Colors.TEXT_WHITE if selecionado else Colors.TEXT_BLACK),
+            ], spacing=8, tight=True),
+            bgcolor=Colors.BRAND_RED if selecionado else Colors.BG_WHITE,
+            border_radius=8,
+            padding=ft.padding.symmetric(horizontal=16, vertical=10),
+            ink=True, on_click=selecionar,
+            border=ft.border.all(1, Colors.BORDER_LIGHT if not selecionado else Colors.BRAND_RED),
+        )
+
+    tabs_row = ft.Row(spacing=8)
+
+    def rebuild_tabs():
+        tabs_row.controls = [
+            btn_aba("Vendas",  "vendas",  ft.icons.RECEIPT_LONG),
+            btn_aba("Turnos",  "turnos",  ft.icons.PUNCH_CLOCK),
+        ]
+        try: tabs_row.update()
+        except Exception: pass
+
+    tabs_row.controls = [
+        btn_aba("Vendas",  "vendas",  ft.icons.RECEIPT_LONG),
+        btn_aba("Turnos",  "turnos",  ft.icons.PUNCH_CLOCK),
+    ]
+
     btn_sair = Styles.button_danger("Menu Principal", ft.icons.HOME, lambda _: page.go("/"))
 
+    def btn_aba_sidebar(label, valor, icone):
+        selecionado = aba_atual["valor"] == valor
+        def selecionar(e):
+            aba_atual["valor"] = valor
+            rebuild_tabs()
+            aba_vendas.visible = valor == "vendas"
+            aba_turnos.visible = valor == "turnos"
+            if valor == "turnos":
+                carregar_turnos()
+            try:
+                aba_vendas.update()
+                aba_turnos.update()
+            except Exception:
+                pass
+        return ft.ElevatedButton(
+            content=ft.Row([
+                ft.Icon(icone, size=18, color=Colors.TEXT_WHITE if selecionado else Colors.TEXT_GRAY),
+                ft.Text(label, size=14,
+                        weight=ft.FontWeight.BOLD if selecionado else ft.FontWeight.W_400,
+                        color=Colors.TEXT_WHITE if selecionado else Colors.TEXT_BLACK,
+                        no_wrap=True),
+            ], spacing=8, tight=True),
+            bgcolor=Colors.BRAND_RED if selecionado else "#F5F5F5",
+            width=Sizes.BUTTON_WIDTH,
+            height=Sizes.BUTTON_HEIGHT,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=Sizes.BORDER_RADIUS_LARGE),
+                side=ft.BorderSide(1, Colors.BORDER_LIGHT if not selecionado else Colors.BRAND_RED),
+            ),
+            on_click=selecionar,
+        )
+
+    btn_tab_vendas = btn_aba_sidebar("Vendas",  "vendas", ft.icons.RECEIPT_LONG)
+    btn_tab_turnos = btn_aba_sidebar("Turnos",  "turnos", ft.icons.PUNCH_CLOCK)
+
+    sidebar_tabs = [btn_tab_vendas, btn_tab_turnos]
+
+    def rebuild_tabs():
+        # Atualiza aparência dos botões da sidebar
+        for btn, valor in [(btn_tab_vendas, "vendas"), (btn_tab_turnos, "turnos")]:
+            selecionado = aba_atual["valor"] == valor
+            btn.bgcolor = Colors.BRAND_RED if selecionado else "#F5F5F5"
+            btn.content.controls[0].color = Colors.TEXT_WHITE if selecionado else Colors.TEXT_GRAY
+            btn.content.controls[1].color = Colors.TEXT_WHITE if selecionado else Colors.TEXT_BLACK
+            btn.content.controls[1].weight = ft.FontWeight.BOLD if selecionado else ft.FontWeight.W_400
+            try: btn.update()
+            except Exception: pass
+
     sidebar = Styles.sidebar([
+        btn_tab_vendas,
+        btn_tab_turnos,
         ft.Container(expand=True),
         btn_sair,
     ])
 
     main_content = ft.Container(
         content=ft.Column(
-            controls=[top_section, table_container],
+            controls=[
+                ft.Stack(controls=[aba_vendas, aba_turnos], expand=True),
+            ],
             spacing=0,
             expand=True,
         ),
         expand=True,
-        padding=Sizes.SPACING_LARGE,
+        bgcolor=Colors.BG_WHITE,
     )
 
     carregar_vendas()

@@ -2,6 +2,7 @@ import flet as ft
 import sys
 import os
 from app.views.styles.theme import Colors
+from app.api.turno_api import TurnoAPI
 
 # Garante que o Python encontre a pasta 'app'
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -103,8 +104,79 @@ def main(page: ft.Page):
     page.window.on_event = lambda e: confirmar_saida(e) if e.data == "close" else None
     page.confirmar_saida = confirmar_saida  # expõe para views
 
+    # Apenas vendas exige turno aberto
+    ROTAS_REQUER_TURNO = ["/vendas"]
+
+    def modal_sem_turno():
+        def fechar(ev):
+            modal.open = False
+            page.route = "/"
+            page.update()
+
+        modal = ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=12),
+            title=ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.PUNCH_CLOCK, color=Colors.TEXT_WHITE, size=24),
+                    ft.Text("Nenhum Turno Aberto", size=18, weight=ft.FontWeight.BOLD, color=Colors.TEXT_WHITE),
+                ], spacing=8),
+                bgcolor=Colors.BRAND_ORANGE,
+                padding=ft.padding.symmetric(horizontal=20, vertical=16),
+                border_radius=ft.border_radius.only(top_left=10, top_right=10),
+                margin=ft.margin.only(left=-24, right=-24, top=-24, bottom=0),
+            ),
+            content=ft.Container(
+                width=360,
+                content=ft.Column(
+                    tight=True, spacing=12,
+                    controls=[
+                        ft.Container(height=6),
+                        ft.Icon(ft.icons.LOCK_CLOCK, size=48, color=Colors.BRAND_ORANGE),
+                        ft.Text(
+                            "É necessário abrir um turno antes de realizar vendas.",
+                            size=14, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER,
+                        ),
+                        ft.Text(
+                            "Acesse o Menu Principal e clique em 'Abrir Turno'.",
+                            size=13, color=Colors.TEXT_GRAY, text_align=ft.TextAlign.CENTER,
+                        ),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ),
+            actions=[
+                ft.ElevatedButton(
+                    "Entendido",
+                    bgcolor=Colors.BRAND_ORANGE, color=Colors.TEXT_WHITE,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                    on_click=fechar,
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
+        )
+        page.overlay.clear()
+        page.overlay.append(modal)
+        modal.open = True
+        page.update()
+
     def route_change(e):
         page.views.clear()
+
+        # Vendas exige turno ativo
+        if page.route in ROTAS_REQUER_TURNO:
+            try:
+                turno_ativo = TurnoAPI.get_turno_ativo()
+                if not turno_ativo:
+                    # Permanece na home e mostra o modal
+                    # Garante que a home está na view mesmo que já esteja
+                    page.views.clear()
+                    page.views.append(ft.View("/", controls=[HomeView(page)], padding=0))
+                    page.update()
+                    modal_sem_turno()
+                    return
+            except Exception:
+                pass
 
         # Rota Login
         if page.route == "/login":

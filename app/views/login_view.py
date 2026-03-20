@@ -1,5 +1,6 @@
 import flet as ft
 from app.views.styles.theme import Colors, Sizes, Styles
+from app.api.auth_api import AuthAPI
 
 
 def LoginView(page: ft.Page):
@@ -8,11 +9,6 @@ def LoginView(page: ft.Page):
     erro_text = ft.Text("", color=Colors.BRAND_RED, size=Sizes.FONT_SMALL, visible=False)
 
     # Credenciais simples (futuramente virá do banco)
-    USUARIOS = {
-        "admin": "1234",
-        "caixa": "1234",
-    }
-
     def fazer_login(e):
         usuario = input_usuario.value.strip()
         senha   = input_senha.value.strip()
@@ -23,13 +19,21 @@ def LoginView(page: ft.Page):
             page.update()
             return
 
-        if USUARIOS.get(usuario) == senha:
+        btn_entrar.disabled = True
+        btn_entrar.content.controls[1].value = "Entrando..."
+        page.update()
+
+        resultado = AuthAPI.login(usuario, senha)
+
+        if resultado:
             erro_text.visible = False
             page.go("/")
         else:
             erro_text.value   = "Usuário ou senha incorretos."
             erro_text.visible = True
             input_senha.value = ""
+            btn_entrar.disabled = False
+            btn_entrar.content.controls[1].value = "Entrar"
             page.update()
 
     # ── Inputs ───────────────────────────────────────────────────────────────

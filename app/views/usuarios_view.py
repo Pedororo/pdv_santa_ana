@@ -7,6 +7,7 @@ def UsuariosView(page: ft.Page):
     """Tela de gerenciamento de usuários"""
 
     todos_usuarios = []
+    cache_inativos = []  # mantém inativos mesmo que back não retorne
     usuario_selecionado = None
 
     # ============================================================================
@@ -53,6 +54,11 @@ def UsuariosView(page: ft.Page):
         def salvar(e):
             if not input_nome.value.strip() or not input_username.value.strip() or not input_senha.value.strip():
                 erro_text.value   = "Preencha todos os campos."
+                erro_text.visible = True
+                page.update()
+                return
+            if len(input_senha.value.strip()) < 6:
+                erro_text.value   = "A senha deve ter no mínimo 6 caracteres."
                 erro_text.visible = True
                 page.update()
                 return
@@ -204,6 +210,10 @@ def UsuariosView(page: ft.Page):
             resultado = UsuariosAPI.desativar_usuario(uid)
             if resultado:
                 modal.open = False
+                # Salva no cache de inativos para continuar exibindo
+                usuario_inativo = {**usuario_selecionado, "ativo": False}
+                if not any(u.get("id") == uid for u in cache_inativos):
+                    cache_inativos.append(usuario_inativo)
                 page.snack_bar = ft.SnackBar(content=ft.Text(f"Usuário #{uid} desativado!"), bgcolor=Colors.BRAND_RED)
                 page.snack_bar.open = True
                 carregar_usuarios()
@@ -271,6 +281,8 @@ def UsuariosView(page: ft.Page):
             resultado = UsuariosAPI.reativar_usuario(uid)
             if resultado:
                 modal.open = False
+                # Remove do cache de inativos
+                cache_inativos[:] = [u for u in cache_inativos if u.get("id") != uid]
                 page.snack_bar = ft.SnackBar(content=ft.Text(f"Usuário #{uid} reativado!"), bgcolor=Colors.BRAND_GREEN)
                 page.snack_bar.open = True
                 carregar_usuarios()
@@ -388,7 +400,7 @@ def UsuariosView(page: ft.Page):
         page.update()
 
     def carregar_usuarios():
-        nonlocal todos_usuarios, usuario_selecionado
+        nonlocal todos_usuarios, usuario_selecionado, cache_inativos
         usuario_selecionado = None
 
         items_list.controls.clear()
@@ -401,7 +413,14 @@ def UsuariosView(page: ft.Page):
         )
         page.update()
 
-        todos_usuarios = UsuariosAPI.listar_usuarios()
+        ativos = UsuariosAPI.listar_usuarios() or []
+        ids_ativos = {u.get("id") for u in ativos}
+
+        # Atualiza cache: remove quem voltou a ser ativo, mantém quem ainda é inativo
+        cache_inativos = [u for u in cache_inativos if u.get("id") not in ids_ativos]
+
+        # Mescla ativos + inativos do cache
+        todos_usuarios = ativos + cache_inativos
         aplicar_filtros()
 
     # ============================================================================

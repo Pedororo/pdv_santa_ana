@@ -4,6 +4,7 @@ import time
 import threading
 from app.views.styles.theme import Colors, Sizes, Styles
 from app.api.produtos_api import ProdutosAPI
+from app.api.turno_api import TurnoAPI
 from app.api.categorias_api import CategoriasAPI
 from app.api.vendas_api import VendasAPI
 from app.api.movimentacao_api import MovimentacaoAPI
@@ -15,7 +16,8 @@ def VendasView(page: ft.Page):
     # VARIÁVEIS DE CONTROLE
     # ============================================================================
     
-    venda_id_atual = None
+    venda_id_atual  = None
+    turno_id_atual  = None
     valor_total = 0.0
     desconto_aplicado = 0.0
     acrescimo_aplicado = 0.0
@@ -1022,6 +1024,19 @@ def VendasView(page: ft.Page):
             page.update()
 
             try:
+                # Verifica turno ativo antes de criar venda
+                turno_ativo = TurnoAPI.get_turno_ativo()
+                if not turno_ativo:
+                    btn_confirmar.disabled = False
+                    btn_confirmar.text = "Registrar Venda"
+                    page.snack_bar = ft.SnackBar(
+                        content=ft.Text("⚠ Nenhum turno aberto! Abra um turno antes de realizar vendas."),
+                        bgcolor=Colors.BRAND_ORANGE,
+                    )
+                    page.snack_bar.open = True
+                    page.update()
+                    return
+
                 tipo_pagamento = VendasAPI.normalizar_pagamento(forma_pagamento.value or "Dinheiro")
 
                 # 1. Cria a venda — VendaCreate é vazio no backend
@@ -1030,6 +1045,10 @@ def VendasView(page: ft.Page):
                     raise Exception("Falha ao criar venda na API")
 
                 venda_id = venda_criada.get("id")
+                nonlocal venda_id_atual, turno_id_atual
+                venda_id_atual  = venda_id
+                turno_id_atual  = venda_criada.get("turno_id") or (turno_ativo.get("id") if turno_ativo else None)
+                atualizar_info_venda()
 
                 # 2. Adiciona cada item — ItemVendaCreate só aceita produto_id e quantidade
                 for item in itens_venda:
@@ -1108,6 +1127,11 @@ def VendasView(page: ft.Page):
                 # 6. Fecha modal e limpa tela
                 modal.open = False
                 limpar_venda_atual(None)
+                page.snack_bar = ft.SnackBar(
+                    content=ft.Text("✓ Venda concluída com sucesso!"),
+                    bgcolor=Colors.BRAND_GREEN,
+                )
+                page.snack_bar.open = True
 
                 # 7. Nota fiscal
                 modal_nota_fiscal(
@@ -1193,7 +1217,10 @@ def VendasView(page: ft.Page):
         """Limpa a venda atual"""
         items_list.controls.clear()
         
-        nonlocal valor_total, desconto_aplicado, acrescimo_aplicado, valor_recebido, numero_item, itens_venda
+        nonlocal valor_total, desconto_aplicado, acrescimo_aplicado, valor_recebido, numero_item, itens_venda, venda_id_atual, turno_id_atual
+        venda_id_atual = None
+        turno_id_atual = None
+        atualizar_info_venda()
         valor_total = 0.0
         desconto_aplicado = 0.0
         acrescimo_aplicado = 0.0
@@ -1208,11 +1235,6 @@ def VendasView(page: ft.Page):
         
         atualizar_totais()
         
-        page.snack_bar = ft.SnackBar(
-            content=ft.Text("Venda atual cancelada!"),
-            bgcolor=Colors.BRAND_GREEN,
-        )
-        page.snack_bar.open = True
         page.update()
     
     def cancelar_venda_concluida_modal(e):
@@ -1324,7 +1346,7 @@ def VendasView(page: ft.Page):
                         ft.Divider(height=4),
                         ft.Text("Informe o ID da venda:", size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY),
                         input_id_venda,
-                        ft.Text("Turno atual: Turno 1", size=11, color=Colors.TEXT_GRAY, italic=True),
+                        ft.Text(f"Turno: #{turno_id_atual}" if turno_id_atual else "Turno: —", size=11, color=Colors.TEXT_GRAY, italic=True),
                     ],
                 ),
             ),
@@ -1428,14 +1450,28 @@ def VendasView(page: ft.Page):
     # ============================================================================
     # SIDEBAR - INFORMAÇÕES E TOTALIZADORES
     # ============================================================================
-    
+
+    txt_venda_id = ft.Text("—", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_BLUE)
+    txt_turno_id = ft.Text("—", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.TEXT_GRAY)
+
+    def atualizar_info_venda():
+        txt_venda_id.value = f"#{venda_id_atual}" if venda_id_atual else "—"
+        txt_venda_id.color = Colors.BRAND_BLUE if venda_id_atual else Colors.TEXT_GRAY
+        txt_turno_id.value = f"Turno #{turno_id_atual}" if turno_id_atual else "—"
+        txt_turno_id.color = Colors.BRAND_GREEN if turno_id_atual else Colors.TEXT_GRAY
+        try:
+            txt_venda_id.update()
+            txt_turno_id.update()
+        except Exception:
+            pass
+
     info_venda = ft.Container(
         content=ft.Column(
             controls=[
                 ft.Text("INFORMAÇÕES", size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.BOLD, color=Colors.BRAND_RED),
                 ft.Divider(color=Colors.BORDER_MEDIUM, thickness=2),
-                ft.Row(controls=[ft.Text("ID:", size=Sizes.FONT_SMALL, weight=ft.FontWeight.W_500), ft.Text("#001", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_BLUE)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Row(controls=[ft.Text("Turno:", size=Sizes.FONT_SMALL, weight=ft.FontWeight.W_500), ft.Text("Turno 1", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Row(controls=[ft.Text("ID:", size=Sizes.FONT_SMALL, weight=ft.FontWeight.W_500), txt_venda_id], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Row(controls=[ft.Text("Turno:", size=Sizes.FONT_SMALL, weight=ft.FontWeight.W_500), txt_turno_id], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ],
             spacing=Sizes.SPACING_SMALL,
         ),
@@ -1560,7 +1596,16 @@ def VendasView(page: ft.Page):
         )
     
     btn_concluir          = create_action_button("Concluir Venda",  ft.icons.CHECK_CIRCLE,  concluir_venda,                Colors.BRAND_GREEN)
-    btn_limpar_atual      = create_action_button("Limpar Atual",    ft.icons.DELETE_SWEEP,  limpar_venda_atual,            Colors.BRAND_ORANGE)
+    def limpar_com_aviso(e):
+        limpar_venda_atual(e)
+        page.snack_bar = ft.SnackBar(
+            content=ft.Text("Venda atual limpa!"),
+            bgcolor=Colors.BRAND_ORANGE,
+        )
+        page.snack_bar.open = True
+        page.update()
+
+    btn_limpar_atual      = create_action_button("Limpar Atual",    ft.icons.DELETE_SWEEP,  limpar_com_aviso,              Colors.BRAND_ORANGE)
     btn_cancelar_concluida = create_action_button("Cancelar Venda", ft.icons.CANCEL,        cancelar_venda_concluida_modal, Colors.BRAND_RED)
     
     def modal_historico_recente(e):
@@ -1739,6 +1784,19 @@ def VendasView(page: ft.Page):
         bgcolor=Colors.BG_WHITE,
     )
     
+    # Carrega turno ativo ao abrir a tela
+    def init_turno():
+        nonlocal turno_id_atual
+        try:
+            turno_ativo = TurnoAPI.get_turno_ativo()
+            if turno_ativo:
+                turno_id_atual = turno_ativo.get("id")
+                atualizar_info_venda()
+        except Exception as ex:
+            print(f"[Vendas] Erro ao buscar turno: {ex}")
+
+    page.run_thread(init_turno)
+
     return ft.Row(
         controls=[main_content, sidebar],
         spacing=0,
