@@ -59,7 +59,7 @@ class TurnoAPI:
 
     @staticmethod
     def historico() -> List[Dict]:
-        """GET /turnos/historico"""
+        """GET /turnos/historico — turnos do usuário logado"""
         try:
             resp = request_com_auth("GET", f"{TurnoAPI.BASE_URL}/turnos/historico")
             resp.raise_for_status()
@@ -69,3 +69,22 @@ class TurnoAPI:
         except Exception as e:
             print(f"Erro ao listar histórico de turnos: {e}")
             return []
+
+    @staticmethod
+    def historico_todos() -> List[Dict]:
+        """GET /turnos/historico/todos — todos os turnos de todos usuários.
+        Quando o back implementar essa rota, funciona automaticamente.
+        Por enquanto cai no historico do usuário logado.
+        """
+        try:
+            resp = request_com_auth("GET", f"{TurnoAPI.BASE_URL}/turnos/historico/todos")
+            if resp.status_code == 404:
+                # Rota ainda não existe — usa historico do usuário logado
+                return TurnoAPI.historico()
+            resp.raise_for_status()
+            return resp.json()
+        except SessionExpiredError:
+            raise
+        except Exception as e:
+            print(f"Erro ao listar histórico geral de turnos: {e}")
+            return TurnoAPI.historico()

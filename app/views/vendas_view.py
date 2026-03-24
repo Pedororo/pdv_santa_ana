@@ -2,12 +2,14 @@ import flet as ft
 from datetime import datetime, timedelta
 import time
 import threading
-from app.views.styles.theme import Colors, Sizes, Styles
+from app.views.styles.theme import Colors, Sizes, Styles, VendasCols
 from app.api.produtos_api import ProdutosAPI
 from app.api.turno_api import TurnoAPI
 from app.api.categorias_api import CategoriasAPI
 from app.api.vendas_api import VendasAPI
 from app.api.movimentacao_api import MovimentacaoAPI
+from app.utils.printer import imprimir_cupom_venda
+from app.api.auth_api import get_username
 
 def VendasView(page: ft.Page):
     """Tela de registro de vendas"""
@@ -140,9 +142,9 @@ def VendasView(page: ft.Page):
     def adicionar_item_tabela(produto):
         """Adiciona um produto como item na tabela de vendas"""
         nonlocal numero_item, itens_venda
-        
+
         numero_item += 1
-        
+
         item = {
             "numero": numero_item,
             "id": produto.get("id"),
@@ -152,19 +154,10 @@ def VendasView(page: ft.Page):
             "preco_unitario": float(produto.get("preco_venda", 0)),
             "subtotal": float(produto.get("preco_venda", 0)),
         }
-        
+
         itens_venda.append(item)
         atualizar_tabela_itens()
         recalcular_total_venda()
-        
-        if venda_id_atual:
-            item_data = {
-                "produto_id": item["produto_id"],
-                "quantidade": item["quantidade"],
-                "preco_unitario": item["preco_unitario"],
-                "subtotal": item["subtotal"],
-            }
-            VendasAPI.adicionar_item(venda_id_atual, item_data)
     
     def selecionar_linha_item(item_data, linha_container):
         """Destaca visualmente o item selecionado na tabela"""
@@ -273,12 +266,12 @@ def VendasView(page: ft.Page):
             controls=[
                 ft.Container(
                     ft.Text(str(item["numero"]), size=Sizes.FONT_SMALL),
-                    width=Sizes.TABLE_COL_SMALL,
+                    width=VendasCols.NUMERO,
                     alignment=ft.alignment.center
                 ),
                 ft.Container(
                     ft.Text(str(item["id"]), size=Sizes.FONT_SMALL),
-                    width=Sizes.TABLE_COL_SMALL,
+                    width=VendasCols.ID,
                     alignment=ft.alignment.center
                 ),
                 ft.Container(
@@ -288,17 +281,17 @@ def VendasView(page: ft.Page):
                 ),
                 ft.Container(
                     ft.Text(str(item["quantidade"]), size=Sizes.FONT_SMALL),
-                    width=Sizes.TABLE_COL_MEDIUM,
+                    width=VendasCols.QUANTIDADE,
                     alignment=ft.alignment.center
                 ),
                 ft.Container(
                     ft.Text(f"R$ {item['preco_unitario']:.2f}", size=Sizes.FONT_SMALL),
-                    width=Sizes.TABLE_COL_LARGE,
+                    width=VendasCols.PRECO_UNI,
                     alignment=ft.alignment.center
                 ),
                 ft.Container(
                     ft.Text(f"R$ {item['subtotal']:.2f}", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_GREEN),
-                    width=Sizes.TABLE_COL_LARGE,
+                    width=VendasCols.TOTAL,
                     alignment=ft.alignment.center
                 ),
             ],
@@ -849,12 +842,31 @@ def VendasView(page: ft.Page):
 
             def imprimir_nota(e):
                 nota.open = False
-                page.snack_bar = ft.SnackBar(
-                    content=ft.Text("🖨️ Enviando para impressão..."),
-                    bgcolor=Colors.BRAND_BLUE,
-                )
-                page.snack_bar.open = True
                 page.update()
+
+                def _print():
+                    data_fmt = datetime.now().strftime("%d/%m/%Y %H:%M")
+                    sucesso, msg = imprimir_cupom_venda(
+                        venda_id=venda_id,
+                        data_fmt=data_fmt,
+                        itens=itens,
+                        subtotal=subtotal,
+                        desconto=desconto,
+                        acrescimo=acrescimo,
+                        total=total,
+                        pagamento=pagamento,
+                        troco=troco,
+                        valor_recebido=troco + total,
+                        usuario=get_username() or "",
+                    )
+                    page.snack_bar = ft.SnackBar(
+                        content=ft.Text(msg),
+                        bgcolor=Colors.BRAND_GREEN if sucesso else Colors.BRAND_RED,
+                    )
+                    page.snack_bar.open = True
+                    page.update()
+
+                page.run_thread(_print)
 
             linhas_itens = []
             for item in itens:
@@ -1126,7 +1138,13 @@ def VendasView(page: ft.Page):
 
                 # 6. Fecha modal e limpa tela
                 modal.open = False
+                venda_id_concluida = venda_id  # preserva antes de limpar
                 limpar_venda_atual(None)
+                # Mostra o ID da última venda concluída na sidebar
+                txt_venda_id.value = f"#{venda_id_concluida}"
+                txt_venda_id.color = Colors.BRAND_GREEN
+                try: txt_venda_id.update()
+                except Exception: pass
                 page.snack_bar = ft.SnackBar(
                     content=ft.Text("✓ Venda concluída com sucesso!"),
                     bgcolor=Colors.BRAND_GREEN,
@@ -1216,7 +1234,7 @@ def VendasView(page: ft.Page):
     def limpar_venda_atual(e):
         """Limpa a venda atual"""
         items_list.controls.clear()
-        
+
         nonlocal valor_total, desconto_aplicado, acrescimo_aplicado, valor_recebido, numero_item, itens_venda, venda_id_atual, turno_id_atual
         venda_id_atual = None
         turno_id_atual = None
@@ -1420,12 +1438,12 @@ def VendasView(page: ft.Page):
     # ============================================================================
     
     table_header = Styles.table_header([
-        ("Nº", Sizes.TABLE_COL_SMALL),
-        ("ID", Sizes.TABLE_COL_SMALL),
-        ("Descrição", None),
-        ("Quant.", Sizes.TABLE_COL_MEDIUM),
-        ("Valor.Uni", Sizes.TABLE_COL_LARGE),
-        ("Valor total", Sizes.TABLE_COL_LARGE),
+        ("Nº",         VendasCols.NUMERO),
+        ("ID",         VendasCols.ID),
+        ("Descrição",  None),
+        ("Quant.",     VendasCols.QUANTIDADE),
+        ("Valor.Uni",  VendasCols.PRECO_UNI),
+        ("Valor total",VendasCols.TOTAL),
     ])
     
     items_list = ft.Column(controls=[], spacing=0, scroll=ft.ScrollMode.AUTO)
@@ -1470,7 +1488,6 @@ def VendasView(page: ft.Page):
             controls=[
                 ft.Text("INFORMAÇÕES", size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.BOLD, color=Colors.BRAND_RED),
                 ft.Divider(color=Colors.BORDER_MEDIUM, thickness=2),
-                ft.Row(controls=[ft.Text("ID:", size=Sizes.FONT_SMALL, weight=ft.FontWeight.W_500), txt_venda_id], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Row(controls=[ft.Text("Turno:", size=Sizes.FONT_SMALL, weight=ft.FontWeight.W_500), txt_turno_id], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ],
             spacing=Sizes.SPACING_SMALL,

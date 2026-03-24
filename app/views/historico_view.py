@@ -1,8 +1,10 @@
 import flet as ft
 from datetime import datetime, timedelta
-from app.views.styles.theme import Colors, Sizes, Styles
+from app.views.styles.theme import Colors, Sizes, Styles, HistoricoVendasCols, HistoricoTurnosCols
 from app.api.vendas_api import VendasAPI
 from app.api.turno_api import TurnoAPI
+from app.api.usuarios_api import UsuariosAPI
+from app.utils.printer import imprimir_cupom_venda, imprimir_resumo_turno
 
 
 def HistoricoView(page: ft.Page):
@@ -64,7 +66,15 @@ def HistoricoView(page: ft.Page):
         vendas  = filtrar_por_periodo(todas_vendas, periodo)
 
         if texto:
-            vendas = [v for v in vendas if texto in str(v.get("id", "")).lower()]
+            def _match(v):
+                # Busca por ID ou nome do vendedor
+                vendedor = (
+                    v.get("usuario_nome") or
+                    (v.get("usuario", {}).get("nome") if isinstance(v.get("usuario"), dict) else None) or
+                    v.get("vendedor") or ""
+                ).lower()
+                return texto in str(v.get("id", "")).lower() or texto in vendedor
+            vendas = [v for v in vendas if _match(v)]
 
         renderizar_tabela(vendas)
 
@@ -75,6 +85,69 @@ def HistoricoView(page: ft.Page):
     def modal_cancelar(venda):
         venda_id = venda.get("id")
         total    = float(venda.get("total") or venda.get("valor_total") or 0)
+
+        # Verifica se a venda tem mais de 20 minutos
+        data_str = venda.get("data_venda") or venda.get("created_at") or ""
+        venda_expirada = False
+        if data_str:
+            try:
+                dt_local = utc_to_local(data_str)
+                if dt_local and (datetime.now() - dt_local.replace(tzinfo=None)).total_seconds() > 1200:
+                    venda_expirada = True
+            except Exception:
+                pass
+
+        if venda_expirada:
+            def fechar_exp(e):
+                modal_exp.open = False
+                page.update()
+
+            modal_exp = ft.AlertDialog(
+                modal=True,
+                title=ft.Row(
+                    controls=[
+                        ft.Icon(ft.icons.BLOCK, color=Colors.BRAND_RED, size=20),
+                        ft.Text("Cancelamento bloqueado", size=Sizes.FONT_LARGE, weight=ft.FontWeight.BOLD),
+                    ],
+                    spacing=8,
+                ),
+                content=ft.Container(
+                    width=300,
+                    content=ft.Column(
+                        tight=True,
+                        spacing=8,
+                        controls=[
+                            ft.Text(
+                                f"A venda #{venda_id} não pode ser cancelada pois já tem mais de 20 minutos.",
+                                size=Sizes.FONT_SMALL,
+                                color=Colors.BRAND_ORANGE,
+                            ),
+                            ft.Divider(height=1),
+                            ft.Row(
+                                controls=[
+                                    ft.Text("Venda Nº:", size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY),
+                                    ft.Text(f"#{venda_id}", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            ),
+                            ft.Row(
+                                controls=[
+                                    ft.Text("Valor Total:", size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY),
+                                    ft.Text(f"R$ {total:.2f}", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD),
+                                ],
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                            ),
+                        ],
+                    ),
+                ),
+                actions=[ft.ElevatedButton("Entendido", bgcolor=Colors.BRAND_RED, color=Colors.TEXT_WHITE, on_click=fechar_exp, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)))],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.overlay.clear()
+            page.overlay.append(modal_exp)
+            modal_exp.open = True
+            page.update()
+            return
 
         def confirmar(e):
             btn_confirmar.disabled = True
@@ -117,18 +190,39 @@ def HistoricoView(page: ft.Page):
 
         modal = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Cancelar Venda", size=Sizes.FONT_XLARGE, weight=ft.FontWeight.BOLD),
+            title=ft.Row(
+                controls=[
+                    ft.Icon(ft.icons.WARNING_AMBER, size=20, color=Colors.BRAND_RED),
+                    ft.Text("Cancelar Venda", size=Sizes.FONT_LARGE, weight=ft.FontWeight.BOLD),
+                ],
+                spacing=8,
+            ),
             content=ft.Container(
-                width=360,
+                width=300,
                 content=ft.Column(
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=Sizes.SPACING_MEDIUM,
+                    tight=True,
+                    spacing=8,
                     controls=[
-                        ft.Icon(ft.icons.WARNING_AMBER, size=70, color=Colors.BRAND_RED),
-                        ft.Text("Esta ação não pode ser desfeita!", size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.BOLD, color=Colors.BRAND_RED, text_align=ft.TextAlign.CENTER),
-                        ft.Divider(),
-                        ft.Row(controls=[ft.Text("Venda Nº:"), ft.Text(f"#{venda_id}", weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        ft.Row(controls=[ft.Text("Valor Total:"), ft.Text(f"R$ {total:.2f}", weight=ft.FontWeight.BOLD, color=Colors.BRAND_RED)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        ft.Text(
+                            "Esta ação não pode ser desfeita!",
+                            size=Sizes.FONT_SMALL,
+                            color=Colors.BRAND_RED,
+                        ),
+                        ft.Divider(height=1),
+                        ft.Row(
+                            controls=[
+                                ft.Text("Venda Nº:", size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY),
+                                ft.Text(f"#{venda_id}", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        ft.Row(
+                            controls=[
+                                ft.Text("Valor Total:", size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY),
+                                ft.Text(f"R$ {total:.2f}", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_RED),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
                     ],
                 ),
             ),
@@ -154,7 +248,7 @@ def HistoricoView(page: ft.Page):
         input_pagamento = ft.Dropdown(
             label="Forma de Pagamento",
             value=pagamento_atual,
-            width=250,
+            width=220,
             border_color=Colors.BORDER_GRAY,
             options=[ft.dropdown.Option(o) for o in ["Dinheiro", "Débito", "Crédito", "PIX"]],
         )
@@ -228,16 +322,17 @@ def HistoricoView(page: ft.Page):
             modal=True,
             title=ft.Row(
                 controls=[
-                    ft.Icon(ft.icons.EDIT, color=Colors.BRAND_BLUE, size=24),
-                    ft.Text(f"Editar Pagamento #{venda_id}", size=Sizes.FONT_XLARGE, weight=ft.FontWeight.BOLD),
+                    ft.Icon(ft.icons.EDIT, color=Colors.BRAND_BLUE, size=20),
+                    ft.Text(f"Pagamento #{venda_id}", size=Sizes.FONT_LARGE, weight=ft.FontWeight.BOLD),
                 ],
                 spacing=8,
             ),
             content=ft.Container(
-                width=320,
+                width=260,
                 content=ft.Column(
-                    spacing=Sizes.SPACING_MEDIUM,
-                    controls=[ft.Divider(), input_pagamento],
+                    tight=True,
+                    spacing=12,
+                    controls=[input_pagamento],
                 ),
             ),
             actions=[
@@ -311,9 +406,43 @@ def HistoricoView(page: ft.Page):
 
         def imprimir(e):
             nota.open = False
-            page.snack_bar = ft.SnackBar(content=ft.Text("🖨️ Enviando para impressão..."), bgcolor=Colors.BRAND_BLUE)
-            page.snack_bar.open = True
             page.update()
+
+            def _print():
+                itens_fmt = []
+                for item in itens:
+                    pid = item.get("produto_id")
+                    itens_fmt.append({
+                        "nome":          produtos_map.get(pid) or f"Produto #{pid}",
+                        "quantidade":    item.get("quantidade", 1),
+                        "preco_unitario": float(item.get("preco_unitario", 0)),
+                        "subtotal":      float(item.get("subtotal", 0)),
+                    })
+
+                fp_obj = venda.get("forma_pagamento") or {}
+                troco_val = float(fp_obj.get("troco") or 0) if isinstance(fp_obj, dict) else 0.0
+                vr_val    = float(fp_obj.get("valor_recebido") or 0) if isinstance(fp_obj, dict) else 0.0
+
+                sucesso, msg = imprimir_cupom_venda(
+                    venda_id=venda_id,
+                    data_fmt=data_fmt,
+                    itens=itens_fmt,
+                    subtotal=subtotal,
+                    desconto=desconto,
+                    acrescimo=acrescimo,
+                    total=total,
+                    pagamento=pagamento,
+                    troco=troco_val,
+                    valor_recebido=vr_val,
+                )
+                page.snack_bar = ft.SnackBar(
+                    content=ft.Text(msg),
+                    bgcolor=Colors.BRAND_GREEN if sucesso else Colors.BRAND_RED,
+                )
+                page.snack_bar.open = True
+                page.update()
+
+            page.run_thread(_print)
 
         nota = ft.AlertDialog(
             modal=True,
@@ -519,12 +648,12 @@ def HistoricoView(page: ft.Page):
         return ft.Container(
             content=ft.Row(
                 controls=[
-                    ft.Container(ft.Text(str(venda.get("id", "")), size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_SMALL, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(data_fmt, size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(hora_fmt, size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(f"R$ {total:.2f}", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_GREEN), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(pagamento_label, size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_BLUE), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(status.capitalize(), size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=status_cor(status)), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(str(venda.get("id", "")), size=Sizes.FONT_SMALL), width=HistoricoVendasCols.ID, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(data_fmt, size=Sizes.FONT_SMALL), width=HistoricoVendasCols.DATA, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(hora_fmt, size=Sizes.FONT_SMALL), width=HistoricoVendasCols.HORA, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(f"R$ {total:.2f}", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_GREEN), width=HistoricoVendasCols.TOTAL, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(pagamento_label, size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_BLUE), width=HistoricoVendasCols.PAGAMENTO, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(status.capitalize(), size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=status_cor(status)), width=HistoricoVendasCols.STATUS, alignment=ft.alignment.center),
                     ft.Container(
                         content=ft.Text(
                             f"#{venda.get('turno_id')}" if venda.get("turno_id") else "—",
@@ -532,10 +661,18 @@ def HistoricoView(page: ft.Page):
                             color=Colors.BRAND_BLUE if venda.get("turno_id") else Colors.TEXT_GRAY,
                             weight=ft.FontWeight.BOLD if venda.get("turno_id") else ft.FontWeight.W_400,
                         ),
-                        width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center,
+                        width=HistoricoVendasCols.TURNO, alignment=ft.alignment.center,
                     ),
-                    ft.Container(ft.Text(venda.get("vendedor", "Fulano"), size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
-                    ft.Container(btn_menu, width=60, alignment=ft.alignment.center),
+                    ft.Container(
+                        ft.Text(
+                            venda.get("usuario_nome") or
+                            (venda.get("usuario", {}).get("nome") if isinstance(venda.get("usuario"), dict) else None) or
+                            venda.get("vendedor") or "—",
+                            size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY,
+                        ),
+                        width=HistoricoVendasCols.VENDEDOR, alignment=ft.alignment.center,
+                    ),
+                    ft.Container(btn_menu, width=HistoricoVendasCols.ACOES, alignment=ft.alignment.center),
                 ],
                 spacing=0,
             ),
@@ -587,14 +724,29 @@ def HistoricoView(page: ft.Page):
         )
         page.update()
 
-        todas_vendas = sorted(VendasAPI.listar_vendas(), key=lambda v: v.get("id", 0))
+        vendas = sorted(VendasAPI.listar_vendas(), key=lambda v: v.get("id", 0))
+
+        # Monta mapa id → nome para injetar usuario_nome nas vendas que vierem None
+        try:
+            usuarios = UsuariosAPI.listar_usuarios() or []
+            mapa_usuarios = {u.get("id"): u.get("nome") or u.get("username") for u in usuarios}
+        except Exception:
+            mapa_usuarios = {}
+
+        for v in vendas:
+            if not v.get("usuario_nome"):
+                uid = v.get("usuario_id")
+                if uid and uid in mapa_usuarios:
+                    v["usuario_nome"] = mapa_usuarios[uid]
+
+        todas_vendas = vendas
         aplicar_filtros()
 
     # ============================================================================
     # COMPONENTES — ABA VENDAS
     # ============================================================================
 
-    pesquisa_input = Styles.text_field("Pesquisar venda", Sizes.INPUT_XLARGE)
+    pesquisa_input = Styles.text_field("Pesquisar por ID ou vendedor", Sizes.INPUT_XLARGE)
     pesquisa_input.on_submit = lambda _: aplicar_filtros()
 
     btn_localizar = Styles.button_localizar(on_click=lambda _: aplicar_filtros())
@@ -618,15 +770,15 @@ def HistoricoView(page: ft.Page):
     )
 
     table_header = Styles.table_header([
-        ("ID",          Sizes.TABLE_COL_SMALL),
-        ("Data",        Sizes.TABLE_COL_LARGE),
-        ("Hora",        Sizes.TABLE_COL_MEDIUM),
-        ("Valor Total", Sizes.TABLE_COL_LARGE),
-        ("Pagamento",   Sizes.TABLE_COL_LARGE),
-        ("Status",      Sizes.TABLE_COL_LARGE),
-        ("Turno",       Sizes.TABLE_COL_MEDIUM),
-        ("Vendedor",    Sizes.TABLE_COL_LARGE),
-        ("Ações",       60),
+        ("ID",          HistoricoVendasCols.ID),
+        ("Data",        HistoricoVendasCols.DATA),
+        ("Hora",        HistoricoVendasCols.HORA),
+        ("Valor Total", HistoricoVendasCols.TOTAL),
+        ("Pagamento",   HistoricoVendasCols.PAGAMENTO),
+        ("Status",      HistoricoVendasCols.STATUS),
+        ("Turno",       HistoricoVendasCols.TURNO),
+        ("Vendedor",    HistoricoVendasCols.VENDEDOR),
+        ("Ações",       HistoricoVendasCols.ACOES),
     ])
 
     items_list = ft.Column(controls=[], spacing=0, scroll=ft.ScrollMode.AUTO)
@@ -665,15 +817,16 @@ def HistoricoView(page: ft.Page):
     turnos_list = ft.Column(controls=[], spacing=0, scroll=ft.ScrollMode.AUTO)
 
     turnos_header = Styles.table_header([
-        ("#",           Sizes.TABLE_COL_SMALL),
-        ("Abertura",    Sizes.TABLE_COL_LARGE),
-        ("Fechamento",  Sizes.TABLE_COL_LARGE),
-        ("Vendas",      Sizes.TABLE_COL_SMALL),
-        ("Total",       Sizes.TABLE_COL_LARGE),
-        ("Esperado",    Sizes.TABLE_COL_LARGE),
-        ("Informado",   Sizes.TABLE_COL_LARGE),
-        ("Diferença",   Sizes.TABLE_COL_LARGE),
-        ("Status",      Sizes.TABLE_COL_MEDIUM),
+        ("#",           HistoricoTurnosCols.ID),
+        ("Usuário",     HistoricoTurnosCols.USUARIO),
+        ("Abertura",    HistoricoTurnosCols.ABERTURA),
+        ("Fechamento",  HistoricoTurnosCols.FECHAMENTO),
+        ("Vendas",      HistoricoTurnosCols.VENDAS),
+        ("Total",       HistoricoTurnosCols.TOTAL),
+        ("Esperado",    HistoricoTurnosCols.ESPERADO),
+        ("Informado",   HistoricoTurnosCols.INFORMADO),
+        ("Diferença",   HistoricoTurnosCols.DIFERENCA),
+        ("Status",      HistoricoTurnosCols.STATUS),
     ])
 
     def fmt_dt(data_str):
@@ -703,24 +856,33 @@ def HistoricoView(page: ft.Page):
         def ver_detalhes(e, t=turno):
             modal_detalhe_turno(t)
 
+        # Nome do usuário — campo usuario_nome quando back implementar
+        _u = turno.get("usuario")
+        usuario_nome = (
+            turno.get("usuario_nome") or
+            (_u.get("nome") if isinstance(_u, dict) else None) or
+            "—"
+        )
+
         return ft.Container(
             content=ft.Row(
                 controls=[
-                    ft.Container(ft.Text(str(turno.get("id", "")),                              size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_SMALL,  alignment=ft.alignment.center),
-                    ft.Container(ft.Text(fmt_dt(turno.get("data_abertura")),                    size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_LARGE,  alignment=ft.alignment.center),
-                    ft.Container(ft.Text(fmt_dt(turno.get("data_fechamento")),                  size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(str(turno.get("quantidade_vendas", 0)),                size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD), width=Sizes.TABLE_COL_SMALL, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(f"R$ {float(turno.get('total_vendas', 0)):.2f}",      size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_GREEN), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(f"R$ {float(turno.get('valor_esperado') or 0):.2f}",  size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(f"R$ {float(turno.get('valor_informado') or 0):.2f}", size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(txt_dif,                                               size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=cor_dif), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(str(turno.get("id", "")),                              size=Sizes.FONT_SMALL), width=HistoricoTurnosCols.ID,         alignment=ft.alignment.center),
+                    ft.Container(ft.Text(usuario_nome,                                          size=Sizes.FONT_SMALL, color=Colors.BRAND_BLUE, weight=ft.FontWeight.BOLD), width=HistoricoTurnosCols.USUARIO, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(fmt_dt(turno.get("data_abertura")),                    size=Sizes.FONT_SMALL), width=HistoricoTurnosCols.ABERTURA,   alignment=ft.alignment.center),
+                    ft.Container(ft.Text(fmt_dt(turno.get("data_fechamento")),                  size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY), width=HistoricoTurnosCols.FECHAMENTO, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(str(turno.get("quantidade_vendas", 0)),                size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD), width=HistoricoTurnosCols.VENDAS,    alignment=ft.alignment.center),
+                    ft.Container(ft.Text(f"R$ {float(turno.get('total_vendas', 0)):.2f}",      size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_GREEN), width=HistoricoTurnosCols.TOTAL,     alignment=ft.alignment.center),
+                    ft.Container(ft.Text(f"R$ {float(turno.get('valor_esperado') or 0):.2f}",  size=Sizes.FONT_SMALL), width=HistoricoTurnosCols.ESPERADO,   alignment=ft.alignment.center),
+                    ft.Container(ft.Text(f"R$ {float(turno.get('valor_informado') or 0):.2f}", size=Sizes.FONT_SMALL), width=HistoricoTurnosCols.INFORMADO,  alignment=ft.alignment.center),
+                    ft.Container(ft.Text(txt_dif,                                               size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=cor_dif), width=HistoricoTurnosCols.DIFERENCA,  alignment=ft.alignment.center),
                     ft.Container(
                         content=ft.Container(
                             content=ft.Text(label_status, size=11, weight=ft.FontWeight.BOLD, color=Colors.TEXT_WHITE),
                             bgcolor=cor_status, border_radius=12,
                             padding=ft.padding.symmetric(horizontal=10, vertical=4),
                         ),
-                        width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center,
+                        width=HistoricoTurnosCols.STATUS,    alignment=ft.alignment.center,
                     ),
                 ],
                 spacing=0,
@@ -733,14 +895,75 @@ def HistoricoView(page: ft.Page):
         )
 
     def modal_detalhe_turno(turno):
-        fp = turno.get("por_forma_pagamento") or {}
+        turno_id = turno.get("id")
+        _u = turno.get("usuario")
+        usuario_nome = (
+            turno.get("usuario_nome") or
+            (_u.get("nome") if isinstance(_u, dict) else None) or
+            "—"
+        )
         diferenca = turno.get("diferenca")
         cor_dif = Colors.BRAND_GREEN if (diferenca or 0) >= 0 else Colors.BRAND_RED
         sinal   = "+" if (diferenca or 0) >= 0 else ""
 
+        # Busca por_forma_pagamento calculando a partir das vendas do turno
+        # O historico pode não retornar esse campo — calculamos via vendas
+        fp = turno.get("por_forma_pagamento") or {}
+
+        # Se fp está vazio, tenta calcular a partir das vendas do histórico
+        if not any(fp.values()) if fp else True:
+            try:
+                todas = VendasAPI.listar_vendas() or []
+                vendas_turno = [v for v in todas if v.get("turno_id") == turno_id
+                                and (v.get("status") or "").upper() == "CONCLUIDA"]
+                mapa = {
+                    "DINHEIRO":      "Dinheiro",
+                    "CARTAO_DEBITO": "Cartão Débito",
+                    "CARTAO_CREDITO":"Cartão Crédito",
+                    "PIX":           "Pix",
+                }
+                fp = {"Dinheiro": 0.0, "Cartão Débito": 0.0, "Cartão Crédito": 0.0, "Pix": 0.0}
+                for v in vendas_turno:
+                    pg = v.get("forma_pagamento")
+                    if isinstance(pg, dict):
+                        tipo = (pg.get("tipo") or "").upper()
+                        chave = mapa.get(tipo)
+                        if chave:
+                            fp[chave] += float(v.get("total") or 0)
+            except Exception:
+                pass
+
         def fechar(e):
             modal.open = False
             page.update()
+
+        def imprimir(e):
+            modal.open = False
+            page.update()
+
+            def _print():
+                sucesso, msg = imprimir_resumo_turno(
+                    turno_id=turno_id,
+                    usuario=usuario_nome,
+                    abertura=fmt_dt(turno.get("data_abertura")),
+                    fechamento=fmt_dt(turno.get("data_fechamento")),
+                    qtd_vendas=turno.get("quantidade_vendas", 0),
+                    total_vendas=float(turno.get("total_vendas", 0)),
+                    por_forma=fp,
+                    valor_inicial=float(turno.get("valor_inicial", 0)),
+                    valor_esperado=float(turno.get("valor_esperado") or 0),
+                    valor_informado=float(turno.get("valor_informado") or 0),
+                    diferenca=float(diferenca or 0),
+                    observacoes=turno.get("observacoes") or "",
+                )
+                page.snack_bar = ft.SnackBar(
+                    content=ft.Text(msg),
+                    bgcolor=Colors.BRAND_GREEN if sucesso else Colors.BRAND_RED,
+                )
+                page.snack_bar.open = True
+                page.update()
+
+            page.run_thread(_print)
 
         def linha(label, valor, cor=Colors.TEXT_BLACK, bold=False):
             return ft.Row([
@@ -754,7 +977,7 @@ def HistoricoView(page: ft.Page):
             title=ft.Container(
                 content=ft.Row([
                     ft.Icon(ft.icons.PUNCH_CLOCK, color=Colors.TEXT_WHITE, size=22),
-                    ft.Text(f"Turno #{turno.get('id')}", size=18, weight=ft.FontWeight.BOLD, color=Colors.TEXT_WHITE),
+                    ft.Text(f"Turno #{turno_id}", size=18, weight=ft.FontWeight.BOLD, color=Colors.TEXT_WHITE),
                 ], spacing=8),
                 bgcolor=Colors.BRAND_BLUE,
                 padding=ft.padding.symmetric(horizontal=20, vertical=16),
@@ -764,10 +987,11 @@ def HistoricoView(page: ft.Page):
             content=ft.Container(
                 width=420,
                 content=ft.Column(
-                    tight=True, spacing=6, scroll=ft.ScrollMode.AUTO, height=380,
+                    tight=True, spacing=6, scroll=ft.ScrollMode.AUTO, height=400,
                     controls=[
                         ft.Container(height=8),
                         ft.Text("PERÍODO", size=11, weight=ft.FontWeight.BOLD, color=Colors.TEXT_GRAY),
+                        linha("Usuário",    usuario_nome, Colors.BRAND_BLUE, bold=True),
                         linha("Abertura",   fmt_dt(turno.get("data_abertura"))),
                         linha("Fechamento", fmt_dt(turno.get("data_fechamento"))),
                         ft.Divider(height=12),
@@ -782,9 +1006,9 @@ def HistoricoView(page: ft.Page):
                         linha("📱 Pix",            f"R$ {float(fp.get('Pix', 0)):.2f}"),
                         ft.Divider(height=12),
                         ft.Text("CONFERÊNCIA DE CAIXA", size=11, weight=ft.FontWeight.BOLD, color=Colors.TEXT_GRAY),
-                        linha("Valor inicial",      f"R$ {float(turno.get('valor_inicial', 0)):.2f}"),
-                        linha("Valor esperado",     f"R$ {float(turno.get('valor_esperado') or 0):.2f}", Colors.TEXT_BLACK, bold=True),
-                        linha("Valor informado",    f"R$ {float(turno.get('valor_informado') or 0):.2f}"),
+                        linha("Valor inicial",   f"R$ {float(turno.get('valor_inicial', 0)):.2f}"),
+                        linha("Valor esperado",  f"R$ {float(turno.get('valor_esperado') or 0):.2f}", Colors.TEXT_BLACK, bold=True),
+                        linha("Valor informado", f"R$ {float(turno.get('valor_informado') or 0):.2f}"),
                         ft.Container(
                             content=linha("Diferença", f"{sinal}R$ {abs(diferenca or 0):.2f}", cor_dif, bold=True),
                             bgcolor="#F5F5F5", padding=ft.padding.symmetric(horizontal=12, vertical=8), border_radius=8,
@@ -797,12 +1021,19 @@ def HistoricoView(page: ft.Page):
                     ],
                 ),
             ),
-            actions=[ft.ElevatedButton(
-                "Fechar", bgcolor=Colors.BRAND_BLUE, color=Colors.TEXT_WHITE,
-                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-                on_click=fechar,
-            )],
-            actions_alignment=ft.MainAxisAlignment.CENTER,
+            actions=[
+                ft.TextButton("Fechar", on_click=fechar),
+                ft.ElevatedButton(
+                    content=ft.Row([
+                        ft.Icon(ft.icons.PRINT, size=16, color=Colors.TEXT_WHITE),
+                        ft.Text("Imprimir", color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
+                    ], spacing=6, tight=True),
+                    bgcolor=Colors.BRAND_BLUE, color=Colors.TEXT_WHITE,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                    on_click=imprimir,
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
         )
         page.overlay.clear()
         page.overlay.append(modal)
@@ -820,7 +1051,7 @@ def HistoricoView(page: ft.Page):
         )
         page.update()
 
-        historico = TurnoAPI.historico()
+        historico = TurnoAPI.historico_todos()
 
         turnos_list.controls.clear()
         if not historico:

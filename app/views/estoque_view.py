@@ -1,5 +1,5 @@
 import flet as ft
-from app.views.styles.theme import Colors, Sizes, Styles
+from app.views.styles.theme import Colors, Sizes, Styles, EstoqueCols
 from app.api.produtos_api import ProdutosAPI
 from app.api.categorias_api import CategoriasAPI
 from app.api.movimentacao_api import MovimentacaoAPI
@@ -78,16 +78,8 @@ def EstoqueView(page: ft.Page):
         page.update()
     
     def reativar_produto(prod):
-        """Reativa um produto inativo e volta para a tabela de ativos"""
-        resultado = ProdutosAPI.atualizar_produto(prod.get("id"), {
-            "nome":         prod.get("nome"),
-            "preco_venda":  float(prod.get("preco_venda") or 0),
-            "preco_compra": float(prod.get("preco_compra") or 0),
-            "categoria_id": prod.get("categoria_id"),
-            "codigo_barra": prod.get("codigo_barra", ""),
-            "estoque":      prod.get("estoque", 0),
-            "ativo":        True,
-        })
+        """Reativa um produto inativo via rota dedicada"""
+        resultado = ProdutosAPI.reativar_produto(prod.get("id"))
         if resultado:
             page.snack_bar = ft.SnackBar(
                 content=ft.Text(f"✓ Produto '{prod.get('nome')}' reativado com sucesso!"),
@@ -101,9 +93,8 @@ def EstoqueView(page: ft.Page):
         page.update()
 
     def carregar_inativos_na_tabela():
-        """Carrega produtos inativos na tabela principal"""
-        todos = ProdutosAPI.listar_produtos() or []
-        inativos = [p for p in todos if not p.get("ativo", True)]
+        """Carrega produtos inativos na tabela principal via rota dedicada"""
+        inativos = ProdutosAPI.listar_inativos() or []
         cache_inativos["lista"] = inativos  # atualiza cache para validação de cod. barras
         items_list.controls.clear()
 
@@ -122,13 +113,52 @@ def EstoqueView(page: ft.Page):
                 def _reativar(e, p=prod):
                     reativar_produto(p)
 
+                # categoria pode vir como string ou como objeto aninhado
+                cat = prod.get("categoria_nome") or ""
+                if not cat:
+                    cat_obj = prod.get("categoria")
+                    if isinstance(cat_obj, dict):
+                        cat = cat_obj.get("nome", "—")
+                    else:
+                        cat = str(cat_obj) if cat_obj else "—"
+
+                cod   = prod.get("codigo_barra") or "—"
+                nome  = prod.get("nome") or "—"
+                estq  = prod.get("estoque", 0)
+                pc    = float(prod.get("preco_compra") or 0)
+                pv    = float(prod.get("preco_venda") or 0)
+
                 linha = ft.Container(
                     content=ft.Row(
                         controls=[
-                            ft.Container(ft.Text(str(prod.get("id", "")), size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY), width=Sizes.TABLE_COL_SMALL),
-                            ft.Container(ft.Text(prod.get("codigo_barra", ""), size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_XLARGE),
-                            ft.Container(ft.Text(prod.get("nome", ""), size=Sizes.FONT_SMALL), expand=True),
-                            ft.Container(ft.Text(prod.get("categoria_nome", ""), size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY), width=Sizes.TABLE_COL_LARGE),
+                            ft.Container(
+                                ft.Text(str(prod.get("id", "")), size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY, weight=ft.FontWeight.BOLD),
+                                width=Sizes.TABLE_COL_SMALL, alignment=ft.alignment.center,
+                            ),
+                            ft.Container(
+                                ft.Text(cod, size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY),
+                                width=Sizes.TABLE_COL_XLARGE, alignment=ft.alignment.center,
+                            ),
+                            ft.Container(
+                                ft.Text(nome, size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD),
+                                expand=True, alignment=ft.alignment.center_left,
+                            ),
+                            ft.Container(
+                                ft.Text(cat, size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY),
+                                width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center,
+                            ),
+                            ft.Container(
+                                ft.Text(str(estq), size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY),
+                                width=Sizes.TABLE_COL_SMALL, alignment=ft.alignment.center,
+                            ),
+                            ft.Container(
+                                ft.Text(f"R$ {pc:.2f}", size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY),
+                                width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center,
+                            ),
+                            ft.Container(
+                                ft.Text(f"R$ {pv:.2f}", size=Sizes.FONT_SMALL, color=Colors.TEXT_GRAY),
+                                width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center,
+                            ),
                             ft.Container(
                                 content=ft.ElevatedButton(
                                     content=ft.Row([
@@ -147,7 +177,7 @@ def EstoqueView(page: ft.Page):
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=0,
                     ),
-                    padding=ft.padding.symmetric(horizontal=Sizes.SPACING_LARGE, vertical=12),
+                    padding=ft.padding.symmetric(horizontal=Sizes.SPACING_LARGE, vertical=10),
                     border=ft.border.only(bottom=ft.BorderSide(1, Colors.BORDER_LIGHT)),
                     bgcolor="#FFF8F6",
                 )
@@ -166,11 +196,17 @@ def EstoqueView(page: ft.Page):
             btn_inativos.style = ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=Sizes.BORDER_RADIUS_LARGE),
             )
-            # Troca header para modo inativo
-            table_header.content.controls[-1] = ft.Container(
-                ft.Text("Ação", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.TEXT_BLACK),
-                width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center,
-            )
+            # Troca header para modo inativo — adiciona colunas extras
+            table_header.content.controls = [
+                ft.Container(ft.Text("ID",          size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.TEXT_BLACK), width=Sizes.TABLE_COL_SMALL,  alignment=ft.alignment.center),
+                ft.Container(ft.Text("Cód. Barras", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.TEXT_BLACK), width=Sizes.TABLE_COL_XLARGE, alignment=ft.alignment.center),
+                ft.Container(ft.Text("Descrição",   size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.TEXT_BLACK), expand=True,                  alignment=ft.alignment.center),
+                ft.Container(ft.Text("Categoria",   size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.TEXT_BLACK), width=Sizes.TABLE_COL_LARGE,  alignment=ft.alignment.center),
+                ft.Container(ft.Text("Estoque",     size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.TEXT_BLACK), width=Sizes.TABLE_COL_SMALL,  alignment=ft.alignment.center),
+                ft.Container(ft.Text("Compra",      size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.TEXT_BLACK), width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center),
+                ft.Container(ft.Text("Venda",       size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.TEXT_BLACK), width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center),
+                ft.Container(ft.Text("Ação",        size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.TEXT_BLACK), width=Sizes.TABLE_COL_LARGE,  alignment=ft.alignment.center),
+            ]
             carregar_inativos_na_tabela()
         else:
             # Volta ao modo ativos
@@ -214,9 +250,10 @@ def EstoqueView(page: ft.Page):
             options=[ft.dropdown.Option(text=cat["nome"], key=str(cat["id"])) for cat in categorias if cat.get("ativo", True)],
             border_color=Colors.BORDER_GRAY,
         )
-        input_quantidade    = ft.TextField(label="Quantidade em Estoque", width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value="0")
-        input_preco_compra  = ft.TextField(label="Preço de Compra (R$)",  width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value="0.00")
-        input_preco_venda   = ft.TextField(label="Preço de Venda (R$)",   width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value="0.00")
+        input_quantidade      = ft.TextField(label="Quantidade em Estoque", width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value="0")
+        input_estoque_minimo  = ft.TextField(label="Estoque Mínimo", width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value="5", helper_text="Alerta quando estoque atingir este valor")
+        input_preco_compra    = ft.TextField(label="Preço de Compra (R$)", width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value="0.00")
+        input_preco_venda     = ft.TextField(label="Preço de Venda (R$)",  width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value="0.00")
         
         ja_salvando = {"valor": False}  # flag anti-duplo-clique/duplo-submit
 
@@ -294,8 +331,13 @@ def EstoqueView(page: ft.Page):
 
             # Busca em ativos
             duplicado_ativo  = next((p for p in todos_ativos if p.get("codigo_barra", "").strip() == cod), None)
-            # Busca em inativos via cache (populado quando toggle de inativos é acionado)
-            duplicado_inativo = next((p for p in cache_inativos["lista"] if p.get("codigo_barra", "").strip() == cod), None)
+            # Busca em inativos via rota dedicada
+            try:
+                todos_inativos = ProdutosAPI.listar_inativos() or []
+                cache_inativos["lista"] = todos_inativos
+            except Exception:
+                todos_inativos = cache_inativos["lista"]
+            duplicado_inativo = next((p for p in todos_inativos if p.get("codigo_barra", "").strip() == cod), None)
 
             if duplicado_ativo:
                 input_cod_barras.border_color = Colors.BRAND_ORANGE
@@ -326,6 +368,11 @@ def EstoqueView(page: ft.Page):
             try:
                 # O backend (service.create) já registra CADASTRO_INICIAL
                 # automaticamente se estoque > 0 — não precisa registrar no front
+                try:
+                    estoque_min_val = int(input_estoque_minimo.value or "5")
+                except ValueError:
+                    estoque_min_val = 5
+
                 resultado = ProdutosAPI.criar_produto({
                     "nome": input_descricao.value.strip(),
                     "preco_venda": pv_val,
@@ -333,6 +380,7 @@ def EstoqueView(page: ft.Page):
                     "categoria_id": int(dropdown_tipo.value),
                     "codigo_barra": cod,
                     "estoque": qtd_val,
+                    "estoque_minimo": estoque_min_val,
                 })
 
                 if resultado:
@@ -371,8 +419,8 @@ def EstoqueView(page: ft.Page):
             modal=True,
             title=ft.Text("Incluir Produto", size=Sizes.FONT_XLARGE, weight=ft.FontWeight.BOLD),
             content=ft.Container(
-                content=ft.Column(controls=[input_cod_barras, input_descricao, dropdown_tipo, input_quantidade, input_preco_compra, input_preco_venda], spacing=Sizes.SPACING_MEDIUM, scroll=ft.ScrollMode.AUTO),
-                width=400, height=400,
+                content=ft.Column(controls=[input_cod_barras, input_descricao, dropdown_tipo, input_quantidade, input_estoque_minimo, input_preco_compra, input_preco_venda], spacing=Sizes.SPACING_MEDIUM, scroll=ft.ScrollMode.AUTO),
+                width=400, height=460,
             ),
             actions=[
                 ft.TextButton("Cancelar", on_click=fechar_modal),
@@ -400,10 +448,11 @@ def EstoqueView(page: ft.Page):
         input_cod_barras   = ft.TextField(label="Código de Barras",      width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value=produto_selecionado.get("codigo_barra", ""))
         input_descricao    = ft.TextField(label="Descrição (Nome)",      width=300, border_color=Colors.BORDER_GRAY, value=produto_selecionado.get("nome", ""))
         dropdown_tipo      = ft.Dropdown(label="Categoria", width=300, options=[ft.dropdown.Option(text=cat["nome"], key=str(cat["id"])) for cat in categorias if cat.get("ativo", True)], border_color=Colors.BORDER_GRAY, value=str(produto_selecionado.get("categoria_id", "")))
-        input_quantidade   = ft.TextField(label="Quantidade em Estoque", width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value=str(produto_selecionado.get("estoque", "0")), disabled=True, helper_text="Estoque atual (não editável)")
-        input_preco_compra = ft.TextField(label="Preço de Compra (R$)", width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value=str(float(produto_selecionado.get("preco_compra", 0))))
-        input_preco_venda  = ft.TextField(label="Preço de Venda (R$)",  width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value=str(float(produto_selecionado.get("preco_venda", 0))))
-        checkbox_ativo     = ft.Checkbox(label="Produto Ativo", value=produto_selecionado.get("ativo", True))
+        input_quantidade      = ft.TextField(label="Quantidade em Estoque", width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value=str(produto_selecionado.get("estoque", "0")), disabled=True, helper_text="Estoque atual (não editável)")
+        input_estoque_minimo  = ft.TextField(label="Estoque Mínimo", width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value=str(produto_selecionado.get("estoque_minimo", 5)), helper_text="Alerta quando estoque atingir este valor")
+        input_preco_compra    = ft.TextField(label="Preço de Compra (R$)", width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value=str(float(produto_selecionado.get("preco_compra", 0))))
+        input_preco_venda     = ft.TextField(label="Preço de Venda (R$)",  width=300, border_color=Colors.BORDER_GRAY, keyboard_type=ft.KeyboardType.NUMBER, value=str(float(produto_selecionado.get("preco_venda", 0))))
+        checkbox_ativo        = ft.Checkbox(label="Produto Ativo", value=produto_selecionado.get("ativo", True))
         
         def salvar_alteracoes(e):
             if not all([input_cod_barras.value, input_descricao.value, dropdown_tipo.value, input_preco_compra.value, input_preco_venda.value]):
@@ -412,6 +461,11 @@ def EstoqueView(page: ft.Page):
                 page.update()
                 return
             
+            try:
+                estoque_min_val = int(input_estoque_minimo.value or "5")
+            except ValueError:
+                estoque_min_val = 5
+
             resultado = ProdutosAPI.atualizar_produto(produto_selecionado.get("id"), {
                 "nome": input_descricao.value,
                 "preco_venda": float(input_preco_venda.value.replace(",", ".")),
@@ -419,6 +473,7 @@ def EstoqueView(page: ft.Page):
                 "categoria_id": int(dropdown_tipo.value),
                 "codigo_barra": input_cod_barras.value,
                 "ativo": checkbox_ativo.value,
+                "estoque_minimo": estoque_min_val,
             })
             
             if resultado:
@@ -439,8 +494,8 @@ def EstoqueView(page: ft.Page):
             modal=True,
             title=ft.Text("Alterar Produto", size=Sizes.FONT_XLARGE, weight=ft.FontWeight.BOLD),
             content=ft.Container(
-                content=ft.Column(controls=[input_id, input_cod_barras, input_descricao, dropdown_tipo, input_quantidade, input_preco_compra, input_preco_venda, checkbox_ativo], spacing=Sizes.SPACING_MEDIUM, scroll=ft.ScrollMode.AUTO),
-                width=400, height=500,
+                content=ft.Column(controls=[input_id, input_cod_barras, input_descricao, dropdown_tipo, input_quantidade, input_estoque_minimo, input_preco_compra, input_preco_venda, checkbox_ativo], spacing=Sizes.SPACING_MEDIUM, scroll=ft.ScrollMode.AUTO),
+                width=400, height=560,
             ),
             actions=[
                 ft.TextButton("Cancelar", on_click=fechar_modal),
@@ -908,7 +963,7 @@ def EstoqueView(page: ft.Page):
             spacing=2,
             tight=True,
         ),
-        width=Sizes.TABLE_COL_SMALL,
+        width=EstoqueCols.ID,
         alignment=ft.alignment.center,
     )
 
@@ -924,12 +979,12 @@ def EstoqueView(page: ft.Page):
         content=ft.Row(
             controls=[
                 header_id,
-                make_header_cell("Cód. Barras", Sizes.TABLE_COL_LARGE),
+                make_header_cell("Cód. Barras", EstoqueCols.COD_BARRA),
                 make_header_cell("Descrição"),
-                make_header_cell("Categoria",   Sizes.TABLE_COL_XLARGE),
-                make_header_cell("Estoque",     Sizes.TABLE_COL_SMALL),
-                make_header_cell("Compra",      Sizes.TABLE_COL_MEDIUM),
-                make_header_cell("Venda",       Sizes.TABLE_COL_MEDIUM),
+                make_header_cell("Categoria",   EstoqueCols.CATEGORIA),
+                make_header_cell("Estoque",     EstoqueCols.ESTOQUE),
+                make_header_cell("Compra",      EstoqueCols.COMPRA),
+                make_header_cell("Venda",       EstoqueCols.VENDA),
             ],
             spacing=0,
         ),
@@ -943,16 +998,39 @@ def EstoqueView(page: ft.Page):
     # ============================================================================
 
     def criar_linha_produto(produto):
+        estoque     = int(produto.get("estoque", 0))
+        estoque_min = int(produto.get("estoque_minimo", 5))
+
+        # Define cor e ícone de alerta conforme nível do estoque
+        if estoque == 0:
+            cor_estoque  = Colors.BRAND_RED
+            icone_alerta = ft.Icon(ft.icons.ERROR_OUTLINE, size=14, color=Colors.BRAND_RED, tooltip="Estoque zerado!")
+        elif estoque <= estoque_min:
+            cor_estoque  = Colors.BRAND_ORANGE
+            icone_alerta = ft.Icon(ft.icons.WARNING_AMBER, size=14, color=Colors.BRAND_ORANGE, tooltip=f"Estoque baixo! Mínimo: {estoque_min}")
+        else:
+            cor_estoque  = Colors.BRAND_GREEN
+            icone_alerta = ft.Container(width=14)  # espaço vazio para alinhar
+
+        celula_estoque = ft.Container(
+            content=ft.Row([
+                icone_alerta,
+                ft.Text(str(estoque), size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=cor_estoque),
+            ], spacing=4, tight=True),
+            width=EstoqueCols.ESTOQUE,
+            alignment=ft.alignment.center,
+        )
+
         linha = ft.Container(
             content=ft.Row(
                 controls=[
-                    ft.Container(ft.Text(str(produto.get("id", "")),                                  size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_SMALL,  alignment=ft.alignment.center),
-                    ft.Container(ft.Text(produto.get("codigo_barra", ""),                             size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_LARGE,  alignment=ft.alignment.center),
-                    ft.Container(ft.Text(produto.get("nome", ""),                                     size=Sizes.FONT_SMALL), expand=True,                  alignment=ft.alignment.center),
-                    ft.Container(ft.Text(produto.get("categoria_nome", ""),                           size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_XLARGE, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(str(produto.get("estoque", 0)),                              size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_SMALL,  alignment=ft.alignment.center),
-                    ft.Container(ft.Text(f"R$ {float(produto.get('preco_compra', 0)):.2f}",           size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(f"R$ {float(produto.get('preco_venda',  0)):.2f}",           size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(str(produto.get("id", "")),                        size=Sizes.FONT_SMALL), width=EstoqueCols.ID,          alignment=ft.alignment.center),
+                    ft.Container(ft.Text(produto.get("codigo_barra", ""),                   size=Sizes.FONT_SMALL), width=EstoqueCols.COD_BARRA,  alignment=ft.alignment.center),
+                    ft.Container(ft.Text(produto.get("nome", ""),                           size=Sizes.FONT_SMALL), expand=True,                  alignment=ft.alignment.center),
+                    ft.Container(ft.Text(produto.get("categoria_nome", ""),                 size=Sizes.FONT_SMALL), width=EstoqueCols.CATEGORIA,  alignment=ft.alignment.center),
+                    celula_estoque,
+                    ft.Container(ft.Text(f"R$ {float(produto.get('preco_compra', 0)):.2f}", size=Sizes.FONT_SMALL), width=EstoqueCols.COMPRA,      alignment=ft.alignment.center),
+                    ft.Container(ft.Text(f"R$ {float(produto.get('preco_venda',  0)):.2f}", size=Sizes.FONT_SMALL), width=EstoqueCols.VENDA,       alignment=ft.alignment.center),
                 ],
                 spacing=0,
             ),
@@ -1016,8 +1094,5 @@ def EstoqueView(page: ft.Page):
     )
 
     carregar_produtos()
-    carregar_inativos_na_tabela()  # popula cache de inativos para validação de cod. barras
-    if not modo_inativos["ativo"]:
-        carregar_produtos()  # volta para ativos após popular o cache
 
     return ft.Row(controls=[main_content, sidebar], spacing=0, expand=True)

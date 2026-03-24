@@ -3,6 +3,7 @@ import sys
 import os
 from app.views.styles.theme import Colors
 from app.api.turno_api import TurnoAPI
+from app.api.auth_api import get_role
 
 # Garante que o Python encontre a pasta 'app'
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -107,6 +108,62 @@ def main(page: ft.Page):
     # Apenas vendas exige turno aberto
     ROTAS_REQUER_TURNO = ["/vendas"]
 
+    # Apenas admins podem acessar
+    ROTAS_REQUER_ADMIN = ["/usuarios"]
+
+    def modal_sem_permissao():
+        def fechar(ev):
+            modal.open = False
+            page.route = "/"
+            page.update()
+
+        modal = ft.AlertDialog(
+            modal=True,
+            shape=ft.RoundedRectangleBorder(radius=12),
+            title=ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.BLOCK, color=Colors.TEXT_WHITE, size=24),
+                    ft.Text("Acesso Negado", size=18, weight=ft.FontWeight.BOLD, color=Colors.TEXT_WHITE),
+                ], spacing=8),
+                bgcolor=Colors.BRAND_RED,
+                padding=ft.padding.symmetric(horizontal=20, vertical=16),
+                border_radius=ft.border_radius.only(top_left=10, top_right=10),
+                margin=ft.margin.only(left=-24, right=-24, top=-24, bottom=0),
+            ),
+            content=ft.Container(
+                width=360,
+                content=ft.Column(
+                    tight=True, spacing=12,
+                    controls=[
+                        ft.Container(height=6),
+                        ft.Icon(ft.icons.LOCK, size=48, color=Colors.BRAND_RED),
+                        ft.Text(
+                            "Você não tem permissão para acessar esta área.",
+                            size=14, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER,
+                        ),
+                        ft.Text(
+                            "O gerenciamento de usuários é restrito a administradores.",
+                            size=13, color=Colors.TEXT_GRAY, text_align=ft.TextAlign.CENTER,
+                        ),
+                    ],
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+            ),
+            actions=[
+                ft.ElevatedButton(
+                    "Entendido",
+                    bgcolor=Colors.BRAND_RED, color=Colors.TEXT_WHITE,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+                    on_click=fechar,
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.CENTER,
+        )
+        page.overlay.clear()
+        page.overlay.append(modal)
+        modal.open = True
+        page.update()
+
     def modal_sem_turno():
         def fechar(ev):
             modal.open = False
@@ -168,8 +225,6 @@ def main(page: ft.Page):
             try:
                 turno_ativo = TurnoAPI.get_turno_ativo()
                 if not turno_ativo:
-                    # Permanece na home e mostra o modal
-                    # Garante que a home está na view mesmo que já esteja
                     page.views.clear()
                     page.views.append(ft.View("/", controls=[HomeView(page)], padding=0))
                     page.update()
@@ -177,6 +232,15 @@ def main(page: ft.Page):
                     return
             except Exception:
                 pass
+
+        # Usuários exige role admin
+        if page.route in ROTAS_REQUER_ADMIN:
+            if (get_role() or "").lower() not in ("admin", "gerente"):
+                page.views.clear()
+                page.views.append(ft.View("/", controls=[HomeView(page)], padding=0))
+                page.update()
+                modal_sem_permissao()
+                return
 
         # Rota Login
         if page.route == "/login":

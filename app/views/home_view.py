@@ -202,13 +202,13 @@ def HomeView(page: ft.Page):
 
         hora_fechamento = datetime.now().strftime("%H:%M")
 
-        # Busca vendas do turno
+        # Busca vendas do turno atual — filtra por turno_id e status CONCLUIDA
         try:
-            data_hoje = datetime.now().strftime("%Y-%m-%d")
             todas_vendas = VendasAPI.listar_vendas() or []
             vendas_turno = [
                 v for v in todas_vendas
                 if (v.get("status") or "").upper() == "CONCLUIDA"
+                and v.get("turno_id") == turno["turno_id"]
             ]
         except Exception:
             vendas_turno = []
@@ -521,7 +521,7 @@ def HomeView(page: ft.Page):
 
     body = ft.Container(
         content=ft.Image(
-            src="views/assets/logo_santa_ana.png",
+            src="app/views/assets/logo_santa_ana.png",
             width=450,
             fit=ft.ImageFit.CONTAIN,
         ),

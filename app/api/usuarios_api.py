@@ -75,6 +75,14 @@ class UsuariosAPI:
             return None
 
     @staticmethod
+    def listar_inativos() -> List[Dict]:
+        """Lista usuários inativos.
+        O back filtra só ativos no GET /usuarios/ — retorna lista vazia por ora.
+        Quando o back tiver rota /usuarios/inativos/, atualizar aqui.
+        """
+        return []
+
+    @staticmethod
     def reativar_usuario(usuario_id: int) -> Optional[Dict]:
         try:
             response = request_com_auth("PATCH", f"{UsuariosAPI.BASE_URL}/usuarios/{usuario_id}/reativar")

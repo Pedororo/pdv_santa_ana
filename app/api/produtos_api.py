@@ -60,6 +60,32 @@ class ProdutosAPI:
             return None
     
     @staticmethod
+    def listar_inativos() -> list:
+        """Lista todos os produtos inativos via GET /produtos/inativos/"""
+        try:
+            response = request_com_auth("GET", f"{ProdutosAPI.BASE_URL}/produtos/inativos/")
+            response.raise_for_status()
+            return response.json()
+        except SessionExpiredError:
+            raise
+        except Exception as e:
+            print(f"Erro ao listar produtos inativos: {e}")
+            return []
+
+    @staticmethod
+    def reativar_produto(produto_id: int):
+        """Reativa um produto via PATCH /produtos/{id}/reativar"""
+        try:
+            response = request_com_auth("PATCH", f"{ProdutosAPI.BASE_URL}/produtos/{produto_id}/reativar")
+            response.raise_for_status()
+            return response.json()
+        except SessionExpiredError:
+            raise
+        except Exception as e:
+            print(f"Erro ao reativar produto {produto_id}: {e}")
+            return None
+
+    @staticmethod
     def deletar_produto(produto_id: int) -> bool:
         """Deleta um produto"""
         try:

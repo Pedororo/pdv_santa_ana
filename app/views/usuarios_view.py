@@ -1,5 +1,5 @@
 import flet as ft
-from app.views.styles.theme import Colors, Sizes, Styles
+from app.views.styles.theme import Colors, Sizes, Styles, UsuariosCols
 from app.api.usuarios_api import UsuariosAPI
 
 
@@ -7,7 +7,7 @@ def UsuariosView(page: ft.Page):
     """Tela de gerenciamento de usuários"""
 
     todos_usuarios = []
-    cache_inativos = []  # mantém inativos mesmo que back não retorne
+    cache_inativos_usuarios = []  # back não tem rota de inativos ainda
     usuario_selecionado = None
 
     # ============================================================================
@@ -39,13 +39,13 @@ def UsuariosView(page: ft.Page):
     # ============================================================================
 
     def modal_incluir(e):
-        input_nome     = ft.TextField(label="Nome completo", width=300, border_color=Colors.BORDER_GRAY)
-        input_username = ft.TextField(label="Username", width=300, border_color=Colors.BORDER_GRAY)
-        input_senha    = ft.TextField(label="Senha", width=300, border_color=Colors.BORDER_GRAY, password=True, can_reveal_password=True)
+        input_nome     = ft.TextField(label="Nome completo", width=280, border_color=Colors.BORDER_GRAY)
+        input_username = ft.TextField(label="Username", width=280, border_color=Colors.BORDER_GRAY)
+        input_senha    = ft.TextField(label="Senha", width=280, border_color=Colors.BORDER_GRAY, password=True, can_reveal_password=True)
         input_role     = ft.Dropdown(
             label="Perfil",
             value="VENDEDOR",
-            width=300,
+            width=280,
             border_color=Colors.BORDER_GRAY,
             options=[ft.dropdown.Option("ADMIN", "Administrador"), ft.dropdown.Option("VENDEDOR", "Vendedor")],
         )
@@ -100,11 +100,21 @@ def UsuariosView(page: ft.Page):
 
         modal = ft.AlertDialog(
             modal=True,
-            title=ft.Row(controls=[ft.Icon(ft.icons.PERSON_ADD, color=Colors.BRAND_GREEN, size=24), ft.Text("Incluir Usuário", size=Sizes.FONT_XLARGE, weight=ft.FontWeight.BOLD)], spacing=8),
+            shape=ft.RoundedRectangleBorder(radius=12),
+            title=ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.PERSON_ADD, color=Colors.TEXT_WHITE, size=20),
+                    ft.Text("Incluir Usuário", size=Sizes.FONT_LARGE, weight=ft.FontWeight.BOLD, color=Colors.TEXT_WHITE),
+                ], spacing=8),
+                bgcolor=Colors.BRAND_GREEN,
+                padding=ft.padding.symmetric(horizontal=20, vertical=14),
+                border_radius=ft.border_radius.only(top_left=10, top_right=10),
+                margin=ft.margin.only(left=-24, right=-24, top=-24, bottom=0),
+            ),
             content=ft.Container(
-                width=320,
-                content=ft.Column(spacing=Sizes.SPACING_MEDIUM, controls=[
-                    ft.Divider(),
+                width=300,
+                content=ft.Column(spacing=10, tight=True, controls=[
+                    ft.Container(height=4),
                     input_nome,
                     input_username,
                     input_senha,
@@ -129,9 +139,9 @@ def UsuariosView(page: ft.Page):
             return
 
         uid  = usuario_selecionado.get("id")
-        input_nome     = ft.TextField(label="Nome completo", value=usuario_selecionado.get("nome", ""), width=300, border_color=Colors.BORDER_GRAY)
-        input_username = ft.TextField(label="Username", value=usuario_selecionado.get("username", ""), width=300, border_color=Colors.BORDER_GRAY)
-        input_senha    = ft.TextField(label="Nova senha (deixe em branco para manter)", width=300, border_color=Colors.BORDER_GRAY, password=True, can_reveal_password=True)
+        input_nome     = ft.TextField(label="Nome completo", value=usuario_selecionado.get("nome", ""), width=280, border_color=Colors.BORDER_GRAY)
+        input_username = ft.TextField(label="Username", value=usuario_selecionado.get("username", ""), width=280, border_color=Colors.BORDER_GRAY)
+        input_senha    = ft.TextField(label="Nova senha (deixe em branco para manter)", width=280, border_color=Colors.BORDER_GRAY, password=True, can_reveal_password=True)
         erro_text      = ft.Text("", color=Colors.BRAND_RED, size=Sizes.FONT_SMALL, visible=False)
 
         def salvar(e):
@@ -174,10 +184,23 @@ def UsuariosView(page: ft.Page):
 
         modal = ft.AlertDialog(
             modal=True,
-            title=ft.Row(controls=[ft.Icon(ft.icons.EDIT, color=Colors.BRAND_BLUE, size=24), ft.Text(f"Alterar Usuário #{uid}", size=Sizes.FONT_XLARGE, weight=ft.FontWeight.BOLD)], spacing=8),
+            shape=ft.RoundedRectangleBorder(radius=12),
+            title=ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.EDIT, color=Colors.TEXT_WHITE, size=20),
+                    ft.Text(f"Alterar Usuário #{uid}", size=Sizes.FONT_LARGE, weight=ft.FontWeight.BOLD, color=Colors.TEXT_WHITE),
+                ], spacing=8),
+                bgcolor=Colors.BRAND_BLUE,
+                padding=ft.padding.symmetric(horizontal=20, vertical=14),
+                border_radius=ft.border_radius.only(top_left=10, top_right=10),
+                margin=ft.margin.only(left=-24, right=-24, top=-24, bottom=0),
+            ),
             content=ft.Container(
-                width=320,
-                content=ft.Column(spacing=Sizes.SPACING_MEDIUM, controls=[ft.Divider(), input_nome, input_username, input_senha, erro_text]),
+                width=300,
+                content=ft.Column(spacing=10, tight=True, controls=[
+                    ft.Container(height=4),
+                    input_nome, input_username, input_senha, erro_text,
+                ]),
             ),
             actions=[ft.TextButton("Cancelar", on_click=fechar), btn_salvar],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -210,10 +233,9 @@ def UsuariosView(page: ft.Page):
             resultado = UsuariosAPI.desativar_usuario(uid)
             if resultado:
                 modal.open = False
-                # Salva no cache de inativos para continuar exibindo
                 usuario_inativo = {**usuario_selecionado, "ativo": False}
-                if not any(u.get("id") == uid for u in cache_inativos):
-                    cache_inativos.append(usuario_inativo)
+                if not any(u.get("id") == uid for u in cache_inativos_usuarios):
+                    cache_inativos_usuarios.append(usuario_inativo)
                 page.snack_bar = ft.SnackBar(content=ft.Text(f"Usuário #{uid} desativado!"), bgcolor=Colors.BRAND_RED)
                 page.snack_bar.open = True
                 carregar_usuarios()
@@ -237,16 +259,27 @@ def UsuariosView(page: ft.Page):
 
         modal = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Desativar Usuário", size=Sizes.FONT_XLARGE, weight=ft.FontWeight.BOLD),
+            shape=ft.RoundedRectangleBorder(radius=12),
+            title=ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.BLOCK, color=Colors.TEXT_WHITE, size=20),
+                    ft.Text("Desativar Usuário", size=Sizes.FONT_LARGE, weight=ft.FontWeight.BOLD, color=Colors.TEXT_WHITE),
+                ], spacing=8),
+                bgcolor=Colors.BRAND_RED,
+                padding=ft.padding.symmetric(horizontal=20, vertical=14),
+                border_radius=ft.border_radius.only(top_left=10, top_right=10),
+                margin=ft.margin.only(left=-24, right=-24, top=-24, bottom=0),
+            ),
             content=ft.Container(
-                width=320,
+                width=280,
                 content=ft.Column(
+                    tight=True, spacing=10,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=Sizes.SPACING_MEDIUM,
                     controls=[
-                        ft.Icon(ft.icons.BLOCK, size=60, color=Colors.BRAND_RED),
+                        ft.Container(height=4),
+                        ft.Icon(ft.icons.BLOCK, size=44, color=Colors.BRAND_RED),
                         ft.Text(f"Deseja desativar o usuário #{uid}?", size=Sizes.FONT_MEDIUM, text_align=ft.TextAlign.CENTER),
-                        ft.Text(usuario_selecionado.get("nome", ""), weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+                        ft.Text(usuario_selecionado.get("nome", ""), size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
                     ],
                 ),
             ),
@@ -281,8 +314,7 @@ def UsuariosView(page: ft.Page):
             resultado = UsuariosAPI.reativar_usuario(uid)
             if resultado:
                 modal.open = False
-                # Remove do cache de inativos
-                cache_inativos[:] = [u for u in cache_inativos if u.get("id") != uid]
+                cache_inativos_usuarios[:] = [u for u in cache_inativos_usuarios if u.get("id") != uid]
                 page.snack_bar = ft.SnackBar(content=ft.Text(f"Usuário #{uid} reativado!"), bgcolor=Colors.BRAND_GREEN)
                 page.snack_bar.open = True
                 carregar_usuarios()
@@ -306,16 +338,27 @@ def UsuariosView(page: ft.Page):
 
         modal = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Reativar Usuário", size=Sizes.FONT_XLARGE, weight=ft.FontWeight.BOLD),
+            shape=ft.RoundedRectangleBorder(radius=12),
+            title=ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.icons.CHECK_CIRCLE, color=Colors.TEXT_WHITE, size=20),
+                    ft.Text("Reativar Usuário", size=Sizes.FONT_LARGE, weight=ft.FontWeight.BOLD, color=Colors.TEXT_WHITE),
+                ], spacing=8),
+                bgcolor=Colors.BRAND_GREEN,
+                padding=ft.padding.symmetric(horizontal=20, vertical=14),
+                border_radius=ft.border_radius.only(top_left=10, top_right=10),
+                margin=ft.margin.only(left=-24, right=-24, top=-24, bottom=0),
+            ),
             content=ft.Container(
-                width=320,
+                width=280,
                 content=ft.Column(
+                    tight=True, spacing=10,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=Sizes.SPACING_MEDIUM,
                     controls=[
-                        ft.Icon(ft.icons.CHECK_CIRCLE, size=60, color=Colors.BRAND_GREEN),
+                        ft.Container(height=4),
+                        ft.Icon(ft.icons.CHECK_CIRCLE, size=44, color=Colors.BRAND_GREEN),
                         ft.Text(f"Deseja reativar o usuário #{uid}?", size=Sizes.FONT_MEDIUM, text_align=ft.TextAlign.CENTER),
-                        ft.Text(usuario_selecionado.get("nome", ""), weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+                        ft.Text(usuario_selecionado.get("nome", ""), size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
                     ],
                 ),
             ),
@@ -347,11 +390,11 @@ def UsuariosView(page: ft.Page):
         linha = ft.Container(
             content=ft.Row(
                 controls=[
-                    ft.Container(ft.Text(str(uid), size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_SMALL, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(nome, size=Sizes.FONT_SMALL), expand=True, alignment=ft.alignment.center_left),
-                    ft.Container(ft.Text(uname, size=Sizes.FONT_SMALL), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(role, size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_BLUE), width=Sizes.TABLE_COL_LARGE, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(txt_status, size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=cor_status), width=Sizes.TABLE_COL_MEDIUM, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(str(uid), size=Sizes.FONT_SMALL), width=UsuariosCols.ID, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(nome, size=Sizes.FONT_SMALL), expand=True, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(uname, size=Sizes.FONT_SMALL), width=UsuariosCols.USERNAME, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(role, size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_BLUE), width=UsuariosCols.PERFIL, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(txt_status, size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=cor_status), width=UsuariosCols.STATUS, alignment=ft.alignment.center),
                 ],
                 spacing=0,
             ),
@@ -400,7 +443,7 @@ def UsuariosView(page: ft.Page):
         page.update()
 
     def carregar_usuarios():
-        nonlocal todos_usuarios, usuario_selecionado, cache_inativos
+        nonlocal todos_usuarios, usuario_selecionado
         usuario_selecionado = None
 
         items_list.controls.clear()
@@ -416,11 +459,10 @@ def UsuariosView(page: ft.Page):
         ativos = UsuariosAPI.listar_usuarios() or []
         ids_ativos = {u.get("id") for u in ativos}
 
-        # Atualiza cache: remove quem voltou a ser ativo, mantém quem ainda é inativo
-        cache_inativos = [u for u in cache_inativos if u.get("id") not in ids_ativos]
+        # Remove do cache quem voltou a ser ativo
+        cache_inativos_usuarios[:] = [u for u in cache_inativos_usuarios if u.get("id") not in ids_ativos]
 
-        # Mescla ativos + inativos do cache
-        todos_usuarios = ativos + cache_inativos
+        todos_usuarios = ativos + cache_inativos_usuarios
         aplicar_filtros()
 
     # ============================================================================
@@ -448,11 +490,11 @@ def UsuariosView(page: ft.Page):
     )
 
     table_header = Styles.table_header([
-        ("ID",       Sizes.TABLE_COL_SMALL),
+        ("ID",       UsuariosCols.ID),
         ("Nome",     None),
-        ("Username", Sizes.TABLE_COL_LARGE),
-        ("Perfil",   Sizes.TABLE_COL_LARGE),
-        ("Status",   Sizes.TABLE_COL_MEDIUM),
+        ("Username", UsuariosCols.USERNAME),
+        ("Perfil",   UsuariosCols.PERFIL),
+        ("Status",   UsuariosCols.STATUS),
     ])
 
     items_list = ft.Column(controls=[], spacing=0, scroll=ft.ScrollMode.AUTO)
