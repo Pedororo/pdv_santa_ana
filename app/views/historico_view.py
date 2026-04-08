@@ -724,20 +724,28 @@ def HistoricoView(page: ft.Page):
         )
         page.update()
 
-        vendas = sorted(VendasAPI.listar_vendas(), key=lambda v: v.get("id", 0))
+        vendas = sorted(VendasAPI.listar_vendas() or [], key=lambda v: str(v.get("id", "")))
 
         # Monta mapa id → nome para injetar usuario_nome nas vendas que vierem None
+        # Se o usuário não tiver permissão (403), usa o nome do usuário logado como fallback
+        from app.api.auth_api import get_username
+        mapa_usuarios = {}
         try:
             usuarios = UsuariosAPI.listar_usuarios() or []
             mapa_usuarios = {u.get("id"): u.get("nome") or u.get("username") for u in usuarios}
         except Exception:
-            mapa_usuarios = {}
+            pass  # vendedor não tem acesso — fallback abaixo resolve
+
+        usuario_logado = get_username() or ""
 
         for v in vendas:
             if not v.get("usuario_nome"):
                 uid = v.get("usuario_id")
                 if uid and uid in mapa_usuarios:
                     v["usuario_nome"] = mapa_usuarios[uid]
+                elif usuario_logado:
+                    # Fallback: o vendedor só vê suas próprias vendas, então o nome é o dele
+                    v["usuario_nome"] = usuario_logado
 
         todas_vendas = vendas
         aplicar_filtros()
@@ -1065,7 +1073,7 @@ def HistoricoView(page: ft.Page):
                 )
             )
         else:
-            for t in sorted(historico, key=lambda x: x.get("id", 0), reverse=True):
+            for t in sorted(historico, key=lambda x: str(x.get("id", "")), reverse=True):
                 turnos_list.controls.append(criar_linha_turno(t))
         page.update()
 
@@ -1138,7 +1146,42 @@ def HistoricoView(page: ft.Page):
         btn_aba("Turnos",  "turnos",  ft.icons.PUNCH_CLOCK),
     ]
 
-    btn_sair = Styles.button_danger("Menu Principal", ft.icons.HOME, lambda _: page.go("/"))
+
+    # =========================================================================
+    # ATALHOS DE TECLADO — HISTÓRICO
+    # F5   Atualizar / recarregar lista de vendas
+    # F6   Alternar entre aba Vendas e Turnos
+    # F12  Voltar ao Menu Principal
+    # =========================================================================
+    def _on_keyboard(e: ft.KeyboardEvent):
+        if page.route != "/historico":
+            return
+        k = e.key
+        if k == "F5":
+            if aba_atual["valor"] == "vendas":
+                carregar_vendas()
+            else:
+                carregar_turnos()
+        elif k == "F6":
+            novo = "turnos" if aba_atual["valor"] == "vendas" else "vendas"
+            aba_atual["valor"] = novo
+            rebuild_tabs()
+            aba_vendas.visible = novo == "vendas"
+            aba_turnos.visible = novo == "turnos"
+            if novo == "turnos":
+                carregar_turnos()
+            try:
+                aba_vendas.update()
+                aba_turnos.update()
+            except Exception:
+                pass
+        elif k == "Escape":
+            page.on_keyboard_event = None
+            page.go("/")
+
+    page.on_keyboard_event = _on_keyboard
+
+    btn_sair = Styles.button_danger("Menu Principal - ESC", ft.icons.HOME, lambda _: (setattr(page, "on_keyboard_event", None), page.go("/")))
 
     def btn_aba_sidebar(label, valor, icone):
         selecionado = aba_atual["valor"] == valor
@@ -1172,8 +1215,8 @@ def HistoricoView(page: ft.Page):
             on_click=selecionar,
         )
 
-    btn_tab_vendas = btn_aba_sidebar("Vendas",  "vendas", ft.icons.RECEIPT_LONG)
-    btn_tab_turnos = btn_aba_sidebar("Turnos",  "turnos", ft.icons.PUNCH_CLOCK)
+    btn_tab_vendas = btn_aba_sidebar("Vendas - F6", "vendas", ft.icons.RECEIPT_LONG)
+    btn_tab_turnos = btn_aba_sidebar("Turnos - F6", "turnos", ft.icons.PUNCH_CLOCK)
 
     sidebar_tabs = [btn_tab_vendas, btn_tab_turnos]
 

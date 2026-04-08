@@ -47,10 +47,7 @@ def RelatoriosView(page: ft.Page):
     def _header_tabela(colunas):
         return ft.Container(
             content=ft.Row([
-                ft.Container(
-                    ft.Text(col, size=11, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
-                    width=w, alignment=ft.alignment.center,
-                )
+                ft.Container(ft.Text(col, size=11, weight=ft.FontWeight.BOLD), width=w)
                 for col, w in colunas
             ], spacing=0),
             bgcolor=Colors.BG_PINK_LIGHT,
@@ -191,11 +188,11 @@ def RelatoriosView(page: ft.Page):
                 linhas_mov.append(ft.Container(
                     content=ft.Row([
                         ft.Container(ft.Text(str(m.get("id","")), size=11), width=50, alignment=ft.alignment.center),
-                        ft.Container(ft.Text(m.get("_produto_nome") or str(m.get("produto_id","")), size=11, text_align=ft.TextAlign.CENTER), width=180, alignment=ft.alignment.center),
+                        ft.Container(ft.Text(m.get("_produto_nome") or str(m.get("produto_id","")), size=11), width=180),
                         ft.Container(ft.Text(tipo, size=11, color=Colors.BRAND_GREEN if tipo=="ENTRADA" else Colors.BRAND_RED, weight=ft.FontWeight.BOLD), width=90, alignment=ft.alignment.center),
-                        ft.Container(ft.Text(m.get("motivo",""), size=11, text_align=ft.TextAlign.CENTER), width=120, alignment=ft.alignment.center),
+                        ft.Container(ft.Text(m.get("motivo",""), size=11), width=120),
                         ft.Container(ft.Text(str(m.get("quantidade",0)), size=11, weight=ft.FontWeight.BOLD), width=60, alignment=ft.alignment.center),
-                        ft.Container(ft.Text(str(m.get("data",""))[:16], size=11, color=Colors.TEXT_GRAY, text_align=ft.TextAlign.CENTER), width=140, alignment=ft.alignment.center),
+                        ft.Container(ft.Text(str(m.get("data",""))[:16], size=11, color=Colors.TEXT_GRAY), width=140),
                     ], spacing=0),
                     padding=ft.padding.symmetric(horizontal=12, vertical=6),
                     border=ft.border.only(bottom=ft.BorderSide(1, Colors.BORDER_LIGHT)),
@@ -226,19 +223,11 @@ def RelatoriosView(page: ft.Page):
 
             # Filtra conforme filtro selecionado
             if filtro == "completo":
-                # Ativos + inativos — garante flag correta
-                for p in listagem_ativos:
-                    p.setdefault("ativo", True)
-                for p in listagem_inativos:
-                    p["ativo"] = False
+                # Ativos + inativos
                 listagem = listagem_ativos + listagem_inativos
             elif filtro == "ativos":
-                for p in listagem_ativos:
-                    p.setdefault("ativo", True)
                 listagem = listagem_ativos
             elif filtro == "inativos":
-                for p in listagem_inativos:
-                    p["ativo"] = False
                 listagem = listagem_inativos
             elif filtro == "baixo":
                 listagem = [p for p in listagem_ativos if int(p.get("estoque", 0)) <= int(p.get("estoque_minimo") or 5)]
@@ -250,35 +239,23 @@ def RelatoriosView(page: ft.Page):
                 estq = p.get("estoque", 0)
                 emin = p.get("estoque_minimo") or 5
                 cor_estq = Colors.BRAND_RED if estq == 0 else (Colors.BRAND_ORANGE if estq <= emin else Colors.BRAND_GREEN)
-                ativo = p.get("ativo", True)
-                cor_status = Colors.BRAND_GREEN if ativo else Colors.TEXT_GRAY
-                label_status = "Ativo" if ativo else "Inativo"
                 linhas_est.append(ft.Container(
                     content=ft.Row([
                         ft.Container(ft.Text(str(p.get("id","")), size=11), width=50, alignment=ft.alignment.center),
-                        ft.Container(ft.Text(p.get("nome",""), size=11, text_align=ft.TextAlign.CENTER), width=190, alignment=ft.alignment.center),
-                        ft.Container(ft.Text(p.get("categoria",""), size=11, color=Colors.TEXT_GRAY, text_align=ft.TextAlign.CENTER), width=140, alignment=ft.alignment.center),
-                        ft.Container(ft.Text(str(estq), size=11, weight=ft.FontWeight.BOLD, color=cor_estq), width=70, alignment=ft.alignment.center),
-                        ft.Container(ft.Text(fmt(p.get("preco_compra")), size=11), width=90, alignment=ft.alignment.center),
-                        ft.Container(ft.Text(fmt(p.get("preco_venda")), size=11), width=90, alignment=ft.alignment.center),
-                        ft.Container(
-                            content=ft.Container(
-                                content=ft.Text(label_status, size=10, weight=ft.FontWeight.BOLD, color=Colors.TEXT_WHITE),
-                                bgcolor=cor_status,
-                                border_radius=10,
-                                padding=ft.padding.symmetric(horizontal=8, vertical=3),
-                            ),
-                            width=80, alignment=ft.alignment.center,
-                        ),
+                        ft.Container(ft.Text(p.get("nome",""), size=11), width=200),
+                        ft.Container(ft.Text(p.get("categoria",""), size=11, color=Colors.TEXT_GRAY), width=150),
+                        ft.Container(ft.Text(str(estq), size=11, weight=ft.FontWeight.BOLD, color=cor_estq), width=80, alignment=ft.alignment.center),
+                        ft.Container(ft.Text(fmt(p.get("preco_compra")), size=11), width=100, alignment=ft.alignment.center),
+                        ft.Container(ft.Text(fmt(p.get("preco_venda")), size=11), width=100, alignment=ft.alignment.center),
                     ], spacing=0),
                     padding=ft.padding.symmetric(horizontal=12, vertical=6),
                     border=ft.border.only(bottom=ft.BorderSide(1, Colors.BORDER_LIGHT)),
                 ))
-            header_est = _header_tabela([("ID",50),("Produto",190),("Categoria",140),("Estoque",70),("Compra",90),("Venda",90),("Status",80)])
+            header_est = _header_tabela([("ID",50),("Produto",200),("Categoria",150),("Estoque",80),("Compra",100),("Venda",100)])
             tabela_est = ft.Container(content=ft.Column([
                 header_est,
                 ft.Container(
-                    content=ft.Column(linhas_est if linhas_est else [_linha_vazia("Nenhum produto com estoque baixo" if filtro == "baixo" else "Selecione um filtro e clique em 'Gerar Relatório'")], spacing=0, scroll=ft.ScrollMode.AUTO),
+                    content=ft.Column(linhas_est if linhas_est else [_linha_vazia("Selecione um filtro e clique em 'Gerar Relatório'")], spacing=0, scroll=ft.ScrollMode.AUTO),
                     border=ft.border.all(1, Colors.BORDER_LIGHT), border_radius=ft.border_radius.only(bottom_left=8,bottom_right=8), height=250,
                 ),
             ], spacing=0))
@@ -312,7 +289,7 @@ def RelatoriosView(page: ft.Page):
                 cor_lucro = Colors.BRAND_GREEN if float(p.get("lucro",0)) >= 0 else Colors.BRAND_RED
                 linhas.append(ft.Container(
                     content=ft.Row([
-                        ft.Container(ft.Text(p.get("nome","—"), size=12, text_align=ft.TextAlign.CENTER), width=200, alignment=ft.alignment.center),
+                        ft.Container(ft.Text(p.get("nome","—"), size=12), width=200),
                         ft.Container(ft.Text(str(p.get("qtd_vendida",0)), size=12), width=60, alignment=ft.alignment.center),
                         ft.Container(ft.Text(fmt(p.get("receita")), size=12), width=110, alignment=ft.alignment.center),
                         ft.Container(ft.Text(fmt(p.get("custo")), size=12), width=110, alignment=ft.alignment.center),
@@ -374,8 +351,8 @@ def RelatoriosView(page: ft.Page):
             linhas_turno.append(ft.Container(
                 content=ft.Row([
                     ft.Container(ft.Text(f"#{t.get('id','')}", size=12, weight=ft.FontWeight.BOLD), width=60, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(ab, size=11, color=Colors.TEXT_GRAY, text_align=ft.TextAlign.CENTER), width=130, alignment=ft.alignment.center),
-                    ft.Container(ft.Text(fec, size=11, color=Colors.TEXT_GRAY, text_align=ft.TextAlign.CENTER), width=130, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(ab, size=11, color=Colors.TEXT_GRAY), width=130, alignment=ft.alignment.center),
+                    ft.Container(ft.Text(fec, size=11, color=Colors.TEXT_GRAY), width=130, alignment=ft.alignment.center),
                     ft.Container(ft.Text(fmt(t.get("valor_inicial")), size=12), width=100, alignment=ft.alignment.center),
                     ft.Container(ft.Text(fmt(t.get("total_faturado")), size=12, color=Colors.BRAND_GREEN, weight=ft.FontWeight.BOLD), width=100, alignment=ft.alignment.center),
                     ft.Container(ft.Text(f"{sinal}{fmt(abs(dif))}", size=12, color=cor_dif, weight=ft.FontWeight.BOLD), width=100, alignment=ft.alignment.center),
@@ -1032,10 +1009,32 @@ def RelatoriosView(page: ft.Page):
         else:
             gerar_relatorio_real()  # listagem gera direto
 
+
+    # =========================================================================
+    # ATALHOS DE TECLADO — RELATÓRIOS
+    # F5   Gerar relatório (equivale a clicar em "Gerar Relatório")
+    # F6   Exportar Excel
+    # F12  Voltar ao Menu Principal
+    # =========================================================================
+    def _on_keyboard(e: ft.KeyboardEvent):
+        if page.route != "/relatorios":
+            return
+        k = e.key
+        if k == "F5":
+            _on_click_gerar()
+        elif k == "F6":
+            if btn_exportar.visible:
+                exportar_excel(None)
+        elif k == "Escape":
+            page.on_keyboard_event = None
+            page.go("/")
+
+    page.on_keyboard_event = _on_keyboard
+
     btn_gerar_ref = ft.ElevatedButton(
         content=ft.Row([
             ft.Icon(ft.icons.BAR_CHART, color=Colors.TEXT_WHITE, size=18),
-            ft.Text("Gerar Relatório", color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
+            ft.Text("Gerar Relatório - F5", color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
         ], spacing=8, tight=True),
         bgcolor=Colors.BRAND_RED, height=48,
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
@@ -1046,7 +1045,7 @@ def RelatoriosView(page: ft.Page):
     btn_exportar = ft.ElevatedButton(
         content=ft.Row([
             ft.Icon(ft.icons.TABLE_VIEW, color=Colors.TEXT_WHITE, size=18),
-            ft.Text("Exportar Excel", color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
+            ft.Text("Exportar Excel - F6", color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
         ], spacing=8, tight=True),
         bgcolor=Colors.BRAND_GREEN,
         height=48,
@@ -1058,11 +1057,11 @@ def RelatoriosView(page: ft.Page):
     btn_menu_principal = ft.ElevatedButton(
         content=ft.Row([
             ft.Icon(ft.icons.HOME, color=Colors.TEXT_WHITE, size=18),
-            ft.Text("Menu Principal", color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
+            ft.Text("Menu Principal - ESC", color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
         ], spacing=8, tight=True),
         bgcolor=Colors.BRAND_RED, height=48,
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=10)),
-        on_click=lambda _: page.go("/"), width=220,
+        on_click=lambda _: (setattr(page, "on_keyboard_event", None), page.go("/")), width=220,
     )
 
     painel_esq = ft.Container(

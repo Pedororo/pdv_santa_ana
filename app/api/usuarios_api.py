@@ -27,11 +27,30 @@ class UsuariosAPI:
         try:
             response = request_com_auth("GET", f"{UsuariosAPI.BASE_URL}/usuarios/")
             response.raise_for_status()
-            return response.json()
+            usuarios = response.json()
+
+            # Espelha no banco local para uso offline
+            try:
+                from app.utils.local_db import upsert_usuarios_local
+                upsert_usuarios_local(usuarios)
+            except Exception as e:
+                print(f"[UsuariosAPI] Erro ao espelhar usuários: {e}")
+
+            return usuarios
         except SessionExpiredError:
             raise
         except Exception as e:
             print(f"Erro ao listar usuários: {e}")
+            return []
+
+    @staticmethod
+    def listar_usuarios_offline() -> List[Dict]:
+        """Lê usuários do espelho local — usado quando offline."""
+        try:
+            from app.utils.local_db import listar_usuarios_local
+            return listar_usuarios_local()
+        except Exception as e:
+            print(f"[UsuariosAPI] Erro ao listar usuários offline: {e}")
             return []
 
     @staticmethod

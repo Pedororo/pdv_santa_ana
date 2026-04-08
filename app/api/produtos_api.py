@@ -1,99 +1,100 @@
 import requests
 from typing import List, Dict, Optional
 from app.api.auth_api import request_com_auth, SessionExpiredError
+from app.api.offline_layer import OfflineLayer
+
 
 class ProdutosAPI:
-    """Classe para gerenciar requisições à API de produtos"""
-    
     BASE_URL = "http://localhost:8000"
-    
+
     @staticmethod
     def listar_produtos() -> List[Dict]:
-        """Lista todos os produtos ativos"""
-        try:
+        """Online: busca da API e atualiza espelho. Offline: retorna espelho local."""
+        def _online():
             response = request_com_auth("GET", f"{ProdutosAPI.BASE_URL}/produtos/")
             response.raise_for_status()
             return response.json()
+
+        try:
+            return OfflineLayer.listar_produtos(_online)
         except SessionExpiredError:
             raise
-        except Exception as e:
-            print(f"Erro ao listar produtos: {e}")
-            return []
-    
+
     @staticmethod
     def obter_produto(produto_id: int) -> Optional[Dict]:
-        """Obtém um produto específico por ID"""
-        try:
+        """Online: busca da API. Offline: busca no espelho local."""
+        def _online():
             response = request_com_auth("GET", f"{ProdutosAPI.BASE_URL}/produtos/{produto_id}")
             response.raise_for_status()
             return response.json()
+
+        try:
+            return OfflineLayer.obter_produto(produto_id, _online)
         except SessionExpiredError:
             raise
-        except Exception as e:
-            print(f"Erro ao obter produto: {e}")
-            return None
-    
+
     @staticmethod
     def criar_produto(produto_data: Dict) -> Optional[Dict]:
-        """Cria um novo produto"""
-        try:
+        """Somente online — cadastro de produto exige conexão."""
+        def _online():
             response = request_com_auth("POST", f"{ProdutosAPI.BASE_URL}/produtos/", json=produto_data)
             response.raise_for_status()
             return response.json()
+
+        try:
+            return OfflineLayer.somente_online("criar_produto", _online)
         except SessionExpiredError:
             raise
-        except Exception as e:
-            print(f"Erro ao criar produto: {e}")
-            return None
-    
+
     @staticmethod
     def atualizar_produto(produto_id: int, produto_data: Dict) -> Optional[Dict]:
-        """Atualiza um produto existente"""
-        try:
+        """Somente online."""
+        def _online():
             response = request_com_auth("PATCH", f"{ProdutosAPI.BASE_URL}/produtos/{produto_id}", json=produto_data)
             response.raise_for_status()
             return response.json()
+
+        try:
+            return OfflineLayer.somente_online("atualizar_produto", _online)
         except SessionExpiredError:
             raise
-        except Exception as e:
-            print(f"Erro ao atualizar produto: {e}")
-            return None
-    
+
     @staticmethod
-    def listar_inativos() -> list:
-        """Lista todos os produtos inativos via GET /produtos/inativos/"""
-        try:
+    def listar_inativos() -> List[Dict]:
+        """Somente online."""
+        def _online():
             response = request_com_auth("GET", f"{ProdutosAPI.BASE_URL}/produtos/inativos/")
             response.raise_for_status()
             return response.json()
+
+        try:
+            return OfflineLayer.somente_online("listar_inativos", _online, fallback=[])
         except SessionExpiredError:
             raise
-        except Exception as e:
-            print(f"Erro ao listar produtos inativos: {e}")
-            return []
 
     @staticmethod
-    def reativar_produto(produto_id: int):
-        """Reativa um produto via PATCH /produtos/{id}/reativar"""
-        try:
+    def reativar_produto(produto_id: int) -> Optional[Dict]:
+        """Somente online."""
+        def _online():
             response = request_com_auth("PATCH", f"{ProdutosAPI.BASE_URL}/produtos/{produto_id}/reativar")
             response.raise_for_status()
             return response.json()
+
+        try:
+            return OfflineLayer.somente_online("reativar_produto", _online)
         except SessionExpiredError:
             raise
-        except Exception as e:
-            print(f"Erro ao reativar produto {produto_id}: {e}")
-            return None
 
     @staticmethod
     def deletar_produto(produto_id: int) -> bool:
-        """Deleta um produto"""
-        try:
+        """Somente online."""
+        def _online():
             response = request_com_auth("DELETE", f"{ProdutosAPI.BASE_URL}/produtos/{produto_id}")
             response.raise_for_status()
             return True
+
+        try:
+            resultado = OfflineLayer.somente_online("deletar_produto", _online, fallback=False)
+            return bool(resultado)
         except SessionExpiredError:
             raise
-        except Exception as e:
-            print(f"Erro ao deletar produto: {e}")
-            return False

@@ -8,6 +8,8 @@ from app.api.turno_api import TurnoAPI
 from app.api.categorias_api import CategoriasAPI
 from app.api.vendas_api import VendasAPI
 from app.api.movimentacao_api import MovimentacaoAPI
+from app.utils import connectivity  # ← badge online/offline
+from app.utils import local_db      # ← contagem de pendentes
 from app.utils.printer import imprimir_cupom_venda
 from app.api.auth_api import get_username
 
@@ -28,6 +30,18 @@ def VendasView(page: ft.Page):
     itens_venda = []  # Lista de itens na venda
     item_selecionado = None
     linha_selecionada_tabela = None
+
+    # Snapshot da última venda concluída — usado pelo botão "Reimprimir Nota"
+    _ultimo_snapshot = {
+        "venda_id":  None,
+        "itens":     [],
+        "subtotal":  0.0,
+        "desconto":  0.0,
+        "acrescimo": 0.0,
+        "total":     0.0,
+        "pagamento": "Dinheiro",
+        "troco":     0.0,
+    }
 
     # UTC-3 Fortaleza
     _UTC_OFFSET = timedelta(hours=-3)
@@ -445,7 +459,6 @@ def VendasView(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.END,
         )
         
-        page.overlay.clear()
         page.overlay.append(modal)
         modal.open = True
         page.update()
@@ -527,7 +540,6 @@ def VendasView(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.END,
         )
         
-        page.overlay.clear()
         page.overlay.append(modal)
         modal.open = True
         page.update()
@@ -712,12 +724,14 @@ def VendasView(page: ft.Page):
                 page.update()
                 return
             
-            produto_input.value = str(produto_selecionado_modal.get("id", ""))
+            produto_selecionado = produto_selecionado_modal
             modal.open = False
-            buscar_e_adicionar_produto(None)
+            page.on_keyboard_event = _on_keyboard  # reregistra handler após fechar modal
+            page.update()
+            adicionar_item_tabela(produto_selecionado)
             
             page.snack_bar = ft.SnackBar(
-                content=ft.Text(f"Produto '{produto_selecionado_modal.get('nome', '')}' adicionado!"),
+                content=ft.Text(f"Produto '{produto_selecionado.get('nome', '')}' adicionado!"),
                 bgcolor=Colors.BRAND_GREEN,
             )
             page.snack_bar.open = True
@@ -808,7 +822,6 @@ def VendasView(page: ft.Page):
         )
         
         carregar_produtos_modal()
-        page.overlay.clear()
         page.overlay.append(modal)
         modal.open = True
         page.update()
@@ -845,18 +858,25 @@ def VendasView(page: ft.Page):
                 page.update()
 
                 def _print():
-                    data_fmt = datetime.now().strftime("%d/%m/%Y %H:%M")
+                    itens_fmt = [
+                        {
+                            "nome":           item.get("descricao", ""),
+                            "quantidade":     item.get("quantidade", 1),
+                            "preco_unitario": float(item.get("preco_unitario", 0)),
+                            "subtotal":       float(item.get("subtotal", 0)),
+                        }
+                        for item in itens
+                    ]
                     sucesso, msg = imprimir_cupom_venda(
                         venda_id=venda_id,
-                        data_fmt=data_fmt,
-                        itens=itens,
+                        data_fmt=datetime.now().strftime("%d/%m/%Y %H:%M"),
+                        itens=itens_fmt,
                         subtotal=subtotal,
                         desconto=desconto,
                         acrescimo=acrescimo,
                         total=total,
                         pagamento=pagamento,
-                        troco=troco,
-                        valor_recebido=troco + total,
+                        troco=max(troco, 0),
                         usuario=get_username() or "",
                     )
                     page.snack_bar = ft.SnackBar(
@@ -1036,98 +1056,128 @@ def VendasView(page: ft.Page):
             page.update()
 
             try:
-                # Verifica turno ativo antes de criar venda
-                turno_ativo = TurnoAPI.get_turno_ativo()
-                if not turno_ativo:
-                    btn_confirmar.disabled = False
-                    btn_confirmar.text = "Registrar Venda"
-                    page.snack_bar = ft.SnackBar(
-                        content=ft.Text("⚠ Nenhum turno aberto! Abra um turno antes de realizar vendas."),
-                        bgcolor=Colors.BRAND_ORANGE,
-                    )
-                    page.snack_bar.open = True
-                    page.update()
-                    return
-
                 tipo_pagamento = VendasAPI.normalizar_pagamento(forma_pagamento.value or "Dinheiro")
 
-                # 1. Cria a venda — VendaCreate é vazio no backend
-                venda_criada = VendasAPI.criar_venda({})
+                # Verifica turno ativo — só bloqueia se estivermos online
+                # (offline o turno pode estar apenas em memória local)
+                turno_ativo = None
+                if connectivity.esta_online():
+                    turno_ativo = TurnoAPI.get_turno_ativo()
+                    if not turno_ativo:
+                        btn_confirmar.disabled = False
+                        btn_confirmar.text = "Registrar Venda"
+                        page.snack_bar = ft.SnackBar(
+                            content=ft.Text("⚠ Nenhum turno aberto! Abra um turno antes de realizar vendas."),
+                            bgcolor=Colors.BRAND_ORANGE,
+                        )
+                        page.snack_bar.open = True
+                        page.update()
+                        return
+
+                # 1. Monta payload completo da venda (usado online e offline)
+                venda_payload = {
+                    "itens": [
+                        {
+                            "produto_id":    item["produto_id"],
+                            "quantidade":    item["quantidade"],
+                            "preco_unitario": item["preco_unitario"],
+                            "subtotal":      item["subtotal"],
+                        }
+                        for item in itens_venda
+                    ],
+                    "desconto":        round(desconto_aplicado, 2),
+                    "acrescimo":       round(acrescimo_aplicado, 2),
+                    "total":           round(valor_final, 2),
+                    "tipo_pagamento":  tipo_pagamento,
+                    "valor_recebido":  round(valor_recebido, 2),
+                }
+
+                # 2. Cria a venda pela OfflineLayer (via VendasAPI)
+                venda_criada = VendasAPI.criar_venda(venda_payload)
                 if not venda_criada:
-                    raise Exception("Falha ao criar venda na API")
+                    raise Exception("Falha ao criar venda")
 
                 venda_id = venda_criada.get("id")
+                eh_offline = str(venda_id).startswith("offline_")
+
                 nonlocal venda_id_atual, turno_id_atual
-                venda_id_atual  = venda_id
-                turno_id_atual  = venda_criada.get("turno_id") or (turno_ativo.get("id") if turno_ativo else None)
+                venda_id_atual = venda_id
+                turno_id_atual = (
+                    venda_criada.get("turno_id")
+                    or (turno_ativo.get("id") if turno_ativo else turno_id_atual)
+                )
                 atualizar_info_venda()
 
-                # 2. Adiciona cada item — ItemVendaCreate só aceita produto_id e quantidade
-                for item in itens_venda:
-                    resultado_item = VendasAPI.adicionar_item(venda_id, {
-                        "produto_id": item["produto_id"],
-                        "quantidade": item["quantidade"],
-                    })
-                    if resultado_item is None or "erro" in (resultado_item or {}):
-                        msg_erro = (resultado_item or {}).get("erro", "Erro desconhecido")
-                        # Cancela a venda criada para não deixar lixo no banco
-                        VendasAPI.cancelar_venda(venda_id)
-                        raise Exception(f"Erro no item '{item['descricao']}': {msg_erro}")
+                if eh_offline:
+                    # ── Caminho offline: venda já está na sync_queue ──────────
+                    # Atualiza badge com contagem de pendentes
+                    _atualizar_badge_sidebar()
+                    print(f"[VendasView] Venda salva offline: {venda_id}")
 
-                # 3. Recalcula subtotal dos itens no backend
-                VendasAPI.recalcular_total(venda_id)
-
-                # 3b. Aplica desconto/acréscimo DEPOIS dos itens estarem salvos
-                if desconto_aplicado > 0 or acrescimo_aplicado > 0:
-                    VendasAPI.atualizar_venda(venda_id, {
-                        "desconto": round(desconto_aplicado, 2),
-                        "acrescimo": round(acrescimo_aplicado, 2),
-                    })
-
-                # 3c. Recalcula total final já com desconto/acréscimo aplicados
-                venda_atualizada = VendasAPI.recalcular_total(venda_id)
-                total_real = float(
-                    (venda_atualizada or {}).get("total") or valor_final
-                )
-
-                # Arredonda pra cima com 2 casas para evitar erro de float
-                # (ex: 101.00000000000003 → 101.01 garante valor_recebido >= total)
-                import math
-                total_ceil = math.ceil(total_real * 100) / 100
-
-                # Para dinheiro usa o que o usuário digitou (se >= total),
-                # para outros meios usa o total arredondado pra cima
-                if tipo_pagamento == "DINHEIRO" and valor_recebido >= total_ceil:
-                    vr = round(valor_recebido, 2)
                 else:
-                    vr = total_ceil
+                    # ── Caminho online: fluxo normal de itens/pagamento ───────
 
-                pag_result = VendasAPI.registrar_pagamento(venda_id, {
-                    "tipo": tipo_pagamento,
-                    "valor_recebido": vr,
-                })
-                if not pag_result:
-                    raise Exception("Falha ao registrar pagamento (verifique o tipo e valor)")
-
-                # 4. Finaliza a venda
-                final_result = VendasAPI.finalizar_venda(venda_id)
-                if not final_result:
-                    raise Exception("Falha ao finalizar venda")
-
-                # 4b. Registra movimentação SAIDA/VENDA para cada item
-                try:
+                    # 3. Adiciona cada item
                     for item in itens_venda:
-                        MovimentacaoAPI.registrar_movimentacao({
-                            "tipo":       "SAIDA",
-                            "motivo":     "VENDA",
-                            "quantidade": item["quantidade"],
+                        resultado_item = VendasAPI.adicionar_item(venda_id, {
                             "produto_id": item["produto_id"],
-                            "venda_id":   venda_id,
+                            "quantidade": item["quantidade"],
                         })
-                except Exception as mov_err:
-                    print(f"Aviso: falha ao registrar movimentação de venda: {mov_err}")
+                        if resultado_item is None or "erro" in (resultado_item or {}):
+                            msg_erro = (resultado_item or {}).get("erro", "Erro desconhecido")
+                            VendasAPI.cancelar_venda(venda_id, motivo="")
+                            raise Exception(f"Erro no item '{item['descricao']}': {msg_erro}")
 
-                # 5. Snapshot para a nota
+                    # 4. Recalcula subtotal dos itens no backend
+                    VendasAPI.recalcular_total(venda_id)
+
+                    # 4b. Aplica desconto/acréscimo DEPOIS dos itens estarem salvos
+                    if desconto_aplicado > 0 or acrescimo_aplicado > 0:
+                        VendasAPI.atualizar_venda(venda_id, {
+                            "desconto":  round(desconto_aplicado, 2),
+                            "acrescimo": round(acrescimo_aplicado, 2),
+                        })
+
+                    # 4c. Recalcula total final já com desconto/acréscimo aplicados
+                    venda_atualizada = VendasAPI.recalcular_total(venda_id)
+                    total_real = float(
+                        (venda_atualizada or {}).get("total") or valor_final
+                    )
+
+                    import math
+                    total_ceil = math.ceil(total_real * 100) / 100
+
+                    if tipo_pagamento == "DINHEIRO" and valor_recebido >= total_ceil:
+                        vr = round(valor_recebido, 2)
+                    else:
+                        vr = total_ceil
+
+                    pag_result = VendasAPI.registrar_pagamento(venda_id, {
+                        "tipo":           tipo_pagamento,
+                        "valor_recebido": vr,
+                    })
+                    if not pag_result:
+                        raise Exception("Falha ao registrar pagamento (verifique o tipo e valor)")
+
+                    # 5. Finaliza a venda
+                    final_result = VendasAPI.finalizar_venda(venda_id)
+                    if not final_result:
+                        raise Exception("Falha ao finalizar venda")
+
+                    # 5b. Registra movimentação SAIDA/VENDA para cada item
+                    try:
+                        for item in itens_venda:
+                            MovimentacaoAPI.registrar_movimentacao({
+                                "tipo":       "SAIDA",
+                                "motivo":     "VENDA",
+                                "quantidade": item["quantidade"],
+                                "produto_id": item["produto_id"],
+                                "venda_id":   venda_id,
+                            })
+                    except Exception as mov_err:
+                        print(f"Aviso: falha ao registrar movimentação de venda: {mov_err}")
+
+                # Snapshot para a nota
                 itens_snapshot  = list(itens_venda)
                 subtotal_snap   = valor_total
                 desconto_snap   = desconto_aplicado
@@ -1136,24 +1186,45 @@ def VendasView(page: ft.Page):
                 pagamento_snap  = forma_pagamento.value
                 troco_snap      = calcular_troco()
 
-                # 6. Fecha modal e limpa tela
+                # Persiste snapshot para o botão "Reimprimir Nota"
+                _ultimo_snapshot["venda_id"]  = venda_id
+                _ultimo_snapshot["itens"]     = itens_snapshot
+                _ultimo_snapshot["subtotal"]  = subtotal_snap
+                _ultimo_snapshot["desconto"]  = desconto_snap
+                _ultimo_snapshot["acrescimo"] = acrescimo_snap
+                _ultimo_snapshot["total"]     = total_snap
+                _ultimo_snapshot["pagamento"] = pagamento_snap
+                _ultimo_snapshot["troco"]     = troco_snap
+
+                # Fecha modal e limpa tela
                 modal.open = False
                 venda_id_concluida = venda_id  # preserva antes de limpar
                 limpar_venda_atual(None)
-                # Mostra o ID da última venda concluída na sidebar
-                txt_venda_id.value = f"#{venda_id_concluida}"
-                txt_venda_id.color = Colors.BRAND_GREEN
+
+                # Exibe ID na sidebar — para venda offline mostra label especial
+                if eh_offline:
+                    txt_venda_id.value = "Offline ✓"
+                    txt_venda_id.color = Colors.BRAND_ORANGE
+                else:
+                    txt_venda_id.value = f"#{venda_id_concluida}"
+                    txt_venda_id.color = Colors.BRAND_GREEN
                 try: txt_venda_id.update()
                 except Exception: pass
+
+                msg_sucesso = (
+                    "✓ Venda salva offline — será sincronizada em breve!"
+                    if eh_offline
+                    else "✓ Venda concluída com sucesso!"
+                )
                 page.snack_bar = ft.SnackBar(
-                    content=ft.Text("✓ Venda concluída com sucesso!"),
-                    bgcolor=Colors.BRAND_GREEN,
+                    content=ft.Text(msg_sucesso),
+                    bgcolor=Colors.BRAND_ORANGE if eh_offline else Colors.BRAND_GREEN,
                 )
                 page.snack_bar.open = True
 
-                # 7. Nota fiscal
+                # Nota fiscal
                 modal_nota_fiscal(
-                    venda_id,
+                    venda_id_concluida,
                     itens_snapshot,
                     subtotal_snap,
                     desconto_snap,
@@ -1222,7 +1293,6 @@ def VendasView(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
-        page.overlay.clear()
         page.overlay.append(modal)
         modal.open = True
         page.update()
@@ -1303,7 +1373,7 @@ def VendasView(page: ft.Page):
             except Exception:
                 pass
 
-            resultado = VendasAPI.cancelar_venda(venda_id_cancelar)
+            resultado = VendasAPI.cancelar_venda(venda_id_cancelar, motivo="")
 
             if resultado and "erro" in resultado:
                 page.snack_bar = ft.SnackBar(content=ft.Text(f"Não foi possível cancelar: {resultado['erro']}"), bgcolor=Colors.BRAND_ORANGE)
@@ -1381,7 +1451,6 @@ def VendasView(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.END,
         )
         
-        page.overlay.clear()
         page.overlay.append(modal)
         modal.open = True
         page.update()
@@ -1402,7 +1471,7 @@ def VendasView(page: ft.Page):
     hora_input = Styles.text_field("Hora", Sizes.INPUT_SMALL, value=get_hora_atual(), read_only=True)
     
     btn_buscar_produto = ft.ElevatedButton(
-        "Buscar por nome",
+        "Buscar por nome - F2",
         icon=ft.icons.SEARCH,
         on_click=modal_buscar_produto,
         bgcolor=Colors.BRAND_BLUE,
@@ -1472,6 +1541,29 @@ def VendasView(page: ft.Page):
     txt_venda_id = ft.Text("—", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.BRAND_BLUE)
     txt_turno_id = ft.Text("—", size=Sizes.FONT_SMALL, weight=ft.FontWeight.BOLD, color=Colors.TEXT_GRAY)
 
+    # ── Badge online/offline na sidebar ──────────────────────────────────────
+    _sv_dot = ft.Container(width=9, height=9, bgcolor=Colors.BRAND_GREEN, border_radius=5)
+    _sv_txt = ft.Text("Online", size=Sizes.FONT_SMALL, color=Colors.BRAND_GREEN, weight=ft.FontWeight.W_400)
+    _sv_pendentes = ft.Text("", size=10, color=Colors.BRAND_ORANGE, italic=True)
+
+    def _atualizar_badge_sidebar():
+        online = connectivity.esta_online()
+        _sv_dot.bgcolor = Colors.BRAND_GREEN if online else Colors.BRAND_RED
+        _sv_txt.value   = "Online" if online else "Offline"
+        _sv_txt.color   = Colors.BRAND_GREEN if online else Colors.BRAND_RED
+        _sv_txt.weight  = ft.FontWeight.W_400 if online else ft.FontWeight.BOLD
+        pendentes = local_db.contar_pendentes()
+        _sv_pendentes.value = f"{pendentes} venda(s) pendente(s)" if pendentes > 0 else ""
+        try:
+            _sv_dot.update()
+            _sv_txt.update()
+            _sv_pendentes.update()
+        except Exception:
+            pass
+
+    connectivity.ao_voltar_online(_atualizar_badge_sidebar)
+    connectivity.ao_ficar_offline(_atualizar_badge_sidebar)
+
     def atualizar_info_venda():
         txt_venda_id.value = f"#{venda_id_atual}" if venda_id_atual else "—"
         txt_venda_id.color = Colors.BRAND_BLUE if venda_id_atual else Colors.TEXT_GRAY
@@ -1489,6 +1581,14 @@ def VendasView(page: ft.Page):
                 ft.Text("INFORMAÇÕES", size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.BOLD, color=Colors.BRAND_RED),
                 ft.Divider(color=Colors.BORDER_MEDIUM, thickness=2),
                 ft.Row(controls=[ft.Text("Turno:", size=Sizes.FONT_SMALL, weight=ft.FontWeight.W_500), txt_turno_id], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Divider(color=Colors.BORDER_LIGHT, height=6),
+                # Badge de conexão
+                ft.Row(
+                    controls=[_sv_dot, _sv_txt],
+                    spacing=5,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                _sv_pendentes,
             ],
             spacing=Sizes.SPACING_SMALL,
         ),
@@ -1594,6 +1694,159 @@ def VendasView(page: ft.Page):
         margin=ft.margin.only(top=Sizes.SPACING_SMALL),
     )
     
+    def reimprimir_nota(e):
+        """Reabre a nota fiscal da última venda concluída."""
+        if not _ultimo_snapshot["venda_id"]:
+            page.snack_bar = ft.SnackBar(
+                content=ft.Text("Nenhuma venda concluída nesta sessão para reimprimir."),
+                bgcolor=Colors.BRAND_ORANGE,
+            )
+            page.snack_bar.open = True
+            page.update()
+            return
+
+        s = _ultimo_snapshot
+        linhas = []
+        for item in s["itens"]:
+            linhas.append(
+                ft.Row(
+                    controls=[
+                        ft.Text(item["descricao"], size=11, expand=True),
+                        ft.Text(f"{item['quantidade']}x", size=11, width=35, text_align=ft.TextAlign.RIGHT),
+                        ft.Text(f"R$ {item['preco_unitario']:.2f}", size=11, width=80, text_align=ft.TextAlign.RIGHT),
+                        ft.Text(f"R$ {item['subtotal']:.2f}", size=11, width=80, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.RIGHT),
+                    ],
+                    spacing=4,
+                )
+            )
+
+        def fechar_nota(ev):
+            nota.open = False
+            page.update()
+
+        def imprimir_nota(ev):
+            nota.open = False
+            page.update()
+
+            def _print():
+                itens_fmt = [
+                    {
+                        "nome":           item.get("descricao", ""),
+                        "quantidade":     item.get("quantidade", 1),
+                        "preco_unitario": float(item.get("preco_unitario", 0)),
+                        "subtotal":       float(item.get("subtotal", 0)),
+                    }
+                    for item in s["itens"]
+                ]
+                sucesso, msg = imprimir_cupom_venda(
+                    venda_id=s["venda_id"],
+                    data_fmt=datetime.now().strftime("%d/%m/%Y %H:%M"),
+                    itens=itens_fmt,
+                    subtotal=s["subtotal"],
+                    desconto=s["desconto"],
+                    acrescimo=s["acrescimo"],
+                    total=s["total"],
+                    pagamento=s["pagamento"],
+                    troco=max(s["troco"], 0),
+                    usuario=get_username() or "",
+                )
+                page.snack_bar = ft.SnackBar(
+                    content=ft.Text(msg),
+                    bgcolor=Colors.BRAND_GREEN if sucesso else Colors.BRAND_RED,
+                )
+                page.snack_bar.open = True
+                page.update()
+
+            page.run_thread(_print)
+
+        nota = ft.AlertDialog(
+            modal=True,
+            title=ft.Row(
+                controls=[
+                    ft.Icon(ft.icons.RECEIPT, color=Colors.BRAND_GREEN, size=28),
+                    ft.Text("2ª Via — Nota Fiscal", size=Sizes.FONT_XLARGE, weight=ft.FontWeight.BOLD),
+                ],
+                spacing=8,
+            ),
+            content=ft.Container(
+                width=460,
+                content=ft.Column(
+                    scroll=ft.ScrollMode.AUTO,
+                    spacing=0,
+                    controls=[
+                        ft.Container(
+                            content=ft.Column(
+                                controls=[
+                                    ft.Text("FARMÁCIA SANTA ANA", size=16, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+                                    ft.Text(f"Venda #{s['venda_id']}", size=11, color=Colors.TEXT_GRAY, text_align=ft.TextAlign.CENTER),
+                                ],
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                spacing=2,
+                            ),
+                            padding=ft.padding.only(bottom=8),
+                        ),
+                        ft.Divider(thickness=2, color=Colors.BORDER_MEDIUM),
+                        ft.Container(
+                            content=ft.Row(
+                                controls=[
+                                    ft.Text("DESCRIÇÃO", size=10, weight=ft.FontWeight.BOLD, expand=True),
+                                    ft.Text("QTD", size=10, weight=ft.FontWeight.BOLD, width=35, text_align=ft.TextAlign.RIGHT),
+                                    ft.Text("UNIT.", size=10, weight=ft.FontWeight.BOLD, width=80, text_align=ft.TextAlign.RIGHT),
+                                    ft.Text("TOTAL", size=10, weight=ft.FontWeight.BOLD, width=80, text_align=ft.TextAlign.RIGHT),
+                                ],
+                                spacing=4,
+                            ),
+                            bgcolor="#F5F5F5",
+                            padding=ft.padding.symmetric(horizontal=4, vertical=6),
+                        ),
+                        ft.Divider(height=1, color=Colors.BORDER_LIGHT),
+                        ft.Container(
+                            content=ft.Column(controls=linhas, spacing=6),
+                            padding=ft.padding.symmetric(horizontal=4, vertical=8),
+                        ),
+                        ft.Divider(thickness=2, color=Colors.BORDER_MEDIUM),
+                        ft.Container(
+                            content=ft.Column(
+                                controls=[
+                                    ft.Row(controls=[ft.Text("Subtotal:", size=12), ft.Text(f"R$ {s['subtotal']:.2f}", size=12)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                                    ft.Row(controls=[ft.Text("Desconto:", size=12, color=Colors.BRAND_RED), ft.Text(f"- R$ {s['desconto']:.2f}", size=12, color=Colors.BRAND_RED)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                                    ft.Row(controls=[ft.Text("Acréscimo:", size=12, color=Colors.BRAND_ORANGE), ft.Text(f"+ R$ {s['acrescimo']:.2f}", size=12, color=Colors.BRAND_ORANGE)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                                    ft.Divider(height=1, color=Colors.BORDER_LIGHT),
+                                    ft.Row(controls=[ft.Text("TOTAL:", size=15, weight=ft.FontWeight.BOLD), ft.Text(f"R$ {s['total']:.2f}", size=15, weight=ft.FontWeight.BOLD, color=Colors.BRAND_GREEN)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                                    ft.Divider(height=1, color=Colors.BORDER_LIGHT),
+                                    ft.Row(controls=[ft.Text("Pagamento:", size=12), ft.Text(s['pagamento'], size=12, weight=ft.FontWeight.BOLD)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                                    ft.Row(controls=[ft.Text("Troco:", size=12), ft.Text(f"R$ {max(s['troco'], 0):.2f}", size=12, weight=ft.FontWeight.BOLD, color=Colors.BRAND_BLUE)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                                ],
+                                spacing=6,
+                            ),
+                            padding=ft.padding.symmetric(horizontal=4, vertical=8),
+                        ),
+                        ft.Divider(thickness=2, color=Colors.BORDER_MEDIUM),
+                        ft.Container(
+                            content=ft.Text("Obrigado pela preferência!", size=11, italic=True, color=Colors.TEXT_GRAY, text_align=ft.TextAlign.CENTER),
+                            padding=ft.padding.only(top=6),
+                            alignment=ft.alignment.center,
+                        ),
+                    ],
+                ),
+            ),
+            actions=[
+                ft.TextButton("Fechar", on_click=fechar_nota),
+                ft.ElevatedButton(
+                    "Imprimir",
+                    icon=ft.icons.PRINT,
+                    bgcolor=Colors.BRAND_BLUE,
+                    color=Colors.TEXT_WHITE,
+                    on_click=imprimir_nota,
+                    style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5)),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.overlay.append(nota)
+        nota.open = True
+        page.update()
+
     def create_action_button(text, icon, on_click, bgcolor):
         return ft.ElevatedButton(
             content=ft.Row(
@@ -1612,7 +1865,8 @@ def VendasView(page: ft.Page):
             on_click=on_click
         )
     
-    btn_concluir          = create_action_button("Concluir Venda",  ft.icons.CHECK_CIRCLE,  concluir_venda,                Colors.BRAND_GREEN)
+    btn_concluir = create_action_button("Concluir Venda - F10", ft.icons.CHECK_CIRCLE, concluir_venda, Colors.BRAND_GREEN)
+
     def limpar_com_aviso(e):
         limpar_venda_atual(e)
         page.snack_bar = ft.SnackBar(
@@ -1622,8 +1876,8 @@ def VendasView(page: ft.Page):
         page.snack_bar.open = True
         page.update()
 
-    btn_limpar_atual      = create_action_button("Limpar Atual",    ft.icons.DELETE_SWEEP,  limpar_com_aviso,              Colors.BRAND_ORANGE)
-    btn_cancelar_concluida = create_action_button("Cancelar Venda", ft.icons.CANCEL,        cancelar_venda_concluida_modal, Colors.BRAND_RED)
+    btn_limpar_atual       = create_action_button("Limpar Atual - F6", ft.icons.DELETE_SWEEP, limpar_com_aviso, Colors.BRAND_ORANGE)
+    btn_cancelar_concluida = create_action_button("Cancelar Venda - F11", ft.icons.CANCEL, cancelar_venda_concluida_modal, Colors.BRAND_RED)
     
     def modal_historico_recente(e):
         """Abre modal com as vendas mais recentes"""
@@ -1686,7 +1940,6 @@ def VendasView(page: ft.Page):
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
-        page.overlay.clear()
         page.overlay.append(modal)
         modal.open = True
         page.update()
@@ -1698,7 +1951,7 @@ def VendasView(page: ft.Page):
         lista_vendas_modal.controls.clear()
 
         # Ordena por ID decrescente — última venda aparece no topo
-        vendas_sorted = sorted(vendas, key=lambda x: x.get("id", 0), reverse=True)
+        vendas_sorted = sorted(vendas or [], key=lambda x: str(x.get("id", "")), reverse=True)
         recentes = vendas_sorted[:20]
 
         if not recentes:
@@ -1722,8 +1975,9 @@ def VendasView(page: ft.Page):
                 try:
                     dt_local = utc_to_local(data_str)
                     data_fmt = dt_local.strftime("%d/%m/%Y") if dt_local else data_str[:10]
-                    hora_fmt = dt_local.strftime("%H:%M:%S") if dt_local else (data_str[11:19] if len(data_str) > 10 else "")
+                    hora_fmt = dt_local.strftime("%H:%M:%S") if dt_local else ((data_str or "")[11:19] if len(data_str or "") > 10 else "")
                 except Exception:
+                    data_str = data_str or ""
                     data_fmt = data_str[:10]
                     hora_fmt = data_str[11:19] if len(data_str) > 10 else ""
 
@@ -1758,9 +2012,49 @@ def VendasView(page: ft.Page):
                 )
 
         page.update()
+    btn_historico = create_action_button("Histórico - F7", ft.icons.HISTORY, modal_historico_recente, Colors.BRAND_BLUE)
 
-    btn_historico = create_action_button("Histórico", ft.icons.HISTORY, modal_historico_recente, Colors.BRAND_BLUE)
-    btn_sair      = create_action_button("Menu Principal", ft.icons.HOME, lambda _: page.go("/"), Colors.BRAND_RED)
+    # =========================================================================
+    # ATALHOS DE TECLADO — VENDAS
+    # F2   Buscar produto (abre modal de busca)
+    # F4   Aplicar desconto
+    # F5   Aplicar acréscimo
+    # F6   Limpar venda atual
+    # F7   Histórico
+    # F10  Concluir venda
+    # F11  Cancelar venda concluída
+    # ESC  Voltar ao Menu Principal
+    # =========================================================================
+    def _on_keyboard(e: ft.KeyboardEvent):
+        if page.route != "/vendas":
+            return
+        k = e.key
+        if k == "F2":
+            modal_buscar_produto(None)
+        elif k == "F4":
+            aplicar_desconto(None)
+        elif k == "F5":
+            aplicar_acrescimo(None)
+        elif k == "F6":
+            limpar_com_aviso(None)
+        elif k == "F7":
+            modal_historico_recente(None)
+        elif k == "F10":
+            concluir_venda(None)
+        elif k == "F11":
+            cancelar_venda_concluida_modal(None)
+        elif k == "Escape":
+            page.on_keyboard_event = None
+            page.go("/")
+
+    page.on_keyboard_event = _on_keyboard
+
+    btn_sair = create_action_button(
+        "Menu Principal - ESC",
+        ft.icons.HOME,
+        lambda _: (setattr(page, "on_keyboard_event", None), page.go("/")),
+        Colors.BRAND_RED
+    )
     
     sidebar = ft.Container(
         content=ft.Column(
@@ -1811,6 +2105,8 @@ def VendasView(page: ft.Page):
                 atualizar_info_venda()
         except Exception as ex:
             print(f"[Vendas] Erro ao buscar turno: {ex}")
+        finally:
+            _atualizar_badge_sidebar()  # ← estado inicial do badge
 
     page.run_thread(init_turno)
 

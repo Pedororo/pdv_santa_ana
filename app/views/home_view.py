@@ -4,6 +4,7 @@ from app.views.styles.theme import Colors, Sizes, Styles
 from app.api.vendas_api import VendasAPI
 from app.api.turno_api import TurnoAPI
 from app.api.auth_api import get_username
+from app.utils import connectivity  # ← badge online/offline
 
 def HomeView(page: ft.Page):
     """Tela principal do PDV Santa Ana"""
@@ -32,6 +33,7 @@ def HomeView(page: ft.Page):
                     dt_local = dt + timedelta(hours=-3)
                     turno["hora_abertura"] = dt_local.strftime("%H:%M")
                 except Exception:
+                    data_str = data_str or ""
                     turno["hora_abertura"] = data_str[11:16] if len(data_str) > 10 else "—"
             else:
                 turno["aberto"]   = False
@@ -73,15 +75,51 @@ def HomeView(page: ft.Page):
         except Exception:
             pass  # Ainda não está na página
 
+    # =========================================================================
+    # BADGE ONLINE / OFFLINE NO FOOTER
+    # =========================================================================
+    _badge_dot = ft.Container(
+        width=10, height=10,
+        bgcolor=Colors.BRAND_GREEN,
+        border_radius=5,
+    )
+    _badge_txt = ft.Text(
+        "Online",
+        size=Sizes.FONT_MEDIUM,
+        weight=ft.FontWeight.W_400,
+        color=Colors.BRAND_GREEN,
+    )
+    indicador_conexao = ft.Row(
+        controls=[_badge_dot, _badge_txt],
+        spacing=6,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+
+    def _atualizar_badge_conexao():
+        """Atualiza o badge sem causar crash se o widget não estiver na página."""
+        online = connectivity.esta_online()
+        _badge_dot.bgcolor = Colors.BRAND_GREEN if online else Colors.BRAND_RED
+        _badge_txt.value   = "Online" if online else "Offline"
+        _badge_txt.color   = Colors.BRAND_GREEN if online else Colors.BRAND_RED
+        _badge_txt.weight  = ft.FontWeight.W_400 if online else ft.FontWeight.BOLD
+        try:
+            indicador_conexao.update()
+        except Exception:
+            pass
+
+    # Registra callbacks do monitor de conectividade para atualizar o badge
+    connectivity.ao_voltar_online(_atualizar_badge_conexao)
+    connectivity.ao_ficar_offline(_atualizar_badge_conexao)
+
     def atualizar_botao_turno():
         """Troca ícone/texto do botão de turno no header"""
         if turno["aberto"]:
             btn_turno_ref.content.controls[0].name  = ft.icons.TIMER_OFF
-            btn_turno_ref.content.controls[1].value = "Fechar Turno"
+            btn_turno_ref.content.controls[1].value = "Fechar Turno - F3"
             btn_turno_ref.bgcolor                   = Colors.BRAND_ORANGE
         else:
             btn_turno_ref.content.controls[0].name  = ft.icons.PUNCH_CLOCK
-            btn_turno_ref.content.controls[1].value = "Abrir Turno"
+            btn_turno_ref.content.controls[1].value = "Abrir Turno - F3"
             btn_turno_ref.bgcolor                   = Colors.BRAND_RED
         try:
             btn_turno_ref.update()
@@ -458,22 +496,36 @@ def HomeView(page: ft.Page):
     # =========================================================================
     # BOTÕES DE NAVEGAÇÃO
     # =========================================================================
-    def nav_button(text, icon, route=None, on_click_custom=None):
+    def _navegar(route):
+        """Limpa o handler de teclado antes de navegar para evitar atalhos vazando."""
+        page.on_keyboard_event = None
+        page.go(route)
+
+    def nav_button(text, icon, route=None, on_click_custom=None, shortcut=""):
         def on_click(e):
             if on_click_custom:
                 on_click_custom(e)
             elif route:
-                page.go(route)
+                _navegar(route)
 
+        label = f"{text} - {shortcut}" if shortcut else text
         return ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Icon(icon, color=Colors.TEXT_WHITE, size=Sizes.ICON_LARGE),
-                    ft.Text(text, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD, size=Sizes.FONT_MEDIUM, text_align=ft.TextAlign.CENTER),
+                    ft.Icon(icon, color=Colors.TEXT_WHITE, size=34),
+                    ft.Text(
+                        label,
+                        color=Colors.TEXT_WHITE,
+                        weight=ft.FontWeight.BOLD,
+                        size=15,
+                        text_align=ft.TextAlign.CENTER,
+                        max_lines=2,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    ),
                 ],
                 alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=Sizes.SPACING_MEDIUM,
+                spacing=6,
             ),
             bgcolor=Colors.BRAND_RED,
             width=190,
@@ -487,12 +539,20 @@ def HomeView(page: ft.Page):
     btn_turno_ref = ft.Container(
         content=ft.Column(
             controls=[
-                ft.Icon(ft.icons.PUNCH_CLOCK, color=Colors.TEXT_WHITE, size=Sizes.ICON_LARGE),
-                ft.Text("Abrir Turno", color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD, size=Sizes.FONT_MEDIUM, text_align=ft.TextAlign.CENTER),
+                ft.Icon(ft.icons.PUNCH_CLOCK, color=Colors.TEXT_WHITE, size=34),
+                ft.Text(
+                    "Abrir Turno - F3",
+                    color=Colors.TEXT_WHITE,
+                    weight=ft.FontWeight.BOLD,
+                    size=15,
+                    text_align=ft.TextAlign.CENTER,
+                    max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                ),
             ],
             alignment=ft.MainAxisAlignment.CENTER,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=Sizes.SPACING_MEDIUM,
+            spacing=6,
         ),
         bgcolor=Colors.BRAND_RED,
         width=190,
@@ -505,12 +565,12 @@ def HomeView(page: ft.Page):
     header = ft.Container(
         content=ft.Row(
             controls=[
-                nav_button("Vendas",      ft.icons.SHOPPING_BAG, route="/vendas"),
-                nav_button("Estoque",     ft.icons.INVENTORY_2,  route="/estoque"),
+                nav_button("Vendas",      ft.icons.SHOPPING_BAG, route="/vendas",      shortcut="F1"),
+                nav_button("Estoque",     ft.icons.INVENTORY_2,  route="/estoque",     shortcut="F2"),
                 btn_turno_ref,
-                nav_button("Relatórios",  ft.icons.BAR_CHART,    route="/relatorios"),
-                nav_button("Usuários",    ft.icons.PEOPLE,       route="/usuarios"),
-                nav_button("Histórico",   ft.icons.HISTORY,      route="/historico"),
+                nav_button("Relatórios",  ft.icons.BAR_CHART,    route="/relatorios",  shortcut="F4"),
+                nav_button("Usuários",    ft.icons.PEOPLE,       route="/usuarios",    shortcut="F5"),
+                nav_button("Histórico",   ft.icons.HISTORY,      route="/historico",   shortcut="F6"),
             ],
             alignment=ft.MainAxisAlignment.CENTER,
             spacing=Sizes.SPACING_LARGE,
@@ -521,7 +581,7 @@ def HomeView(page: ft.Page):
 
     body = ft.Container(
         content=ft.Image(
-            src="app/views/assets/logo_santa_ana.png",
+            src="views/assets/logo_santa_ana.png",
             width=450,
             fit=ft.ImageFit.CONTAIN,
         ),
@@ -537,6 +597,7 @@ def HomeView(page: ft.Page):
                         ft.Text(f"Usuário: {get_username() or '—'}", size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
                         ft.Text(f"Data: {datetime.now().strftime('%d/%m/%Y')}", size=Sizes.FONT_MEDIUM, weight=ft.FontWeight.W_400, color=Colors.TEXT_BLACK),
                         indicador_turno,
+                        indicador_conexao,  # ← badge online/offline
                     ],
                     spacing=Sizes.SPACING_XLARGE,
                 ),
@@ -544,7 +605,7 @@ def HomeView(page: ft.Page):
                     content=ft.Row(
                         [
                             ft.Icon(ft.icons.LOGOUT, size=Sizes.ICON_SMALL, color=Colors.TEXT_WHITE),
-                            ft.Text("Sair", size=Sizes.FONT_MEDIUM, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
+                            ft.Text("Sair - F12", size=Sizes.FONT_MEDIUM, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
                         ],
                         alignment=ft.MainAxisAlignment.CENTER,
                         spacing=Sizes.SPACING_MEDIUM,
@@ -552,9 +613,9 @@ def HomeView(page: ft.Page):
                     bgcolor=Colors.BRAND_RED,
                     color=Colors.TEXT_WHITE,
                     height=50,
-                    width=120,
+                    width=160,
                     style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=Sizes.BORDER_RADIUS_MEDIUM)),
-                    on_click=lambda e: page.confirmar_saida(e),
+                    on_click=lambda e: (setattr(page, "on_keyboard_event", None), page.confirmar_saida(e)),
                 ),
             ],
             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -563,10 +624,42 @@ def HomeView(page: ft.Page):
         border=ft.border.only(top=ft.BorderSide(2, Colors.BORDER_MEDIUM)),
     )
 
+
+    # =========================================================================
+    # ATALHOS DE TECLADO — HOME
+    # F1  Vendas        F2  Estoque     F3  Abrir/Fechar Turno
+    # F4  Relatórios    F5  Usuários    F6  Histórico
+    # F12 Sair (logout)
+    # =========================================================================
+    def _on_keyboard(e: ft.KeyboardEvent):
+        if page.route != "/":
+            return
+        k = e.key
+        if k == "F1":
+            page.go("/vendas")
+        elif k == "F2":
+            page.go("/estoque")
+        elif k == "F3":
+            abrir_turno_modal(None)
+        elif k == "F4":
+            page.go("/relatorios")
+        elif k == "F5":
+            page.go("/usuarios")
+        elif k == "F6":
+            page.go("/historico")
+        elif k == "F12":
+            try:
+                page.confirmar_saida(None)
+            except Exception:
+                pass
+
+    page.on_keyboard_event = _on_keyboard
+
     def inicializar(e=None):
         sincronizar_turno()
         atualizar_indicador()
         atualizar_botao_turno()
+        _atualizar_badge_conexao()  # ← estado inicial do badge
         try: page.update()
         except Exception: pass
 

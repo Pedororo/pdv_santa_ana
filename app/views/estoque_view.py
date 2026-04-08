@@ -190,7 +190,7 @@ def EstoqueView(page: ft.Page):
             # Entra no modo inativos
             btn_inativos.content = ft.Row([
                 ft.Icon(ft.icons.ARROW_BACK, size=18, color=Colors.TEXT_WHITE),
-                ft.Text("Ver Ativos", size=13, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
+                ft.Text("Ver Ativos - F9", size=13, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
             ], spacing=6, tight=True)
             btn_inativos.bgcolor = Colors.TEXT_GRAY
             btn_inativos.style = ft.ButtonStyle(
@@ -212,7 +212,7 @@ def EstoqueView(page: ft.Page):
             # Volta ao modo ativos
             btn_inativos.content = ft.Row([
                 ft.Icon(ft.icons.INVENTORY_2_OUTLINED, size=18, color=Colors.TEXT_WHITE),
-                ft.Text("Inativos", size=13, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
+                ft.Text("Inativos - F9", size=13, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
             ], spacing=6, tight=True)
             btn_inativos.bgcolor = Colors.TEXT_GRAY
             btn_inativos.style = ft.ButtonStyle(
@@ -921,7 +921,7 @@ def EstoqueView(page: ft.Page):
     btn_inativos = ft.ElevatedButton(
         content=ft.Row([
             ft.Icon(ft.icons.INVENTORY_2_OUTLINED, size=18, color=Colors.TEXT_WHITE),
-            ft.Text("Inativos", size=13, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
+            ft.Text("Inativos - F9", size=13, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD),
         ], spacing=6, tight=True),
         bgcolor=Colors.TEXT_GRAY,
         height=Sizes.BUTTON_HEIGHT,
@@ -1056,14 +1056,14 @@ def EstoqueView(page: ft.Page):
         margin=ft.margin.only(top=Sizes.SPACING_LARGE),
     )
 
-    btn_incluir   = Styles.button_primary("Incluir Produto", ft.icons.ADD_CIRCLE, modal_incluir_produto)
-    btn_alterar   = Styles.button_warning("Alterar Produto", ft.icons.EDIT,       modal_alterar_produto)
-    btn_excluir   = Styles.button_danger( "Excluir Produto", ft.icons.DELETE,     modal_excluir_produto)
+    btn_incluir   = Styles.button_primary("Incluir Produto - F2", ft.icons.ADD_CIRCLE, modal_incluir_produto)
+    btn_alterar   = Styles.button_warning("Alterar Produto - F3", ft.icons.EDIT, modal_alterar_produto)
+    btn_excluir   = Styles.button_danger("Excluir Produto - F8", ft.icons.DELETE, modal_excluir_produto)
     btn_movimentar = ft.ElevatedButton(
         content=ft.Row(
             [
                 ft.Icon(ft.icons.SWAP_VERT, size=20, color=Colors.TEXT_WHITE),
-                ft.Text("Movimentar Estoque", size=14, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD, no_wrap=True),
+                ft.Text("Movimentar Estoque - F4", size=14, color=Colors.TEXT_WHITE, weight=ft.FontWeight.BOLD, no_wrap=True),
             ],
             alignment=ft.MainAxisAlignment.CENTER,
             spacing=6,
@@ -1075,7 +1075,43 @@ def EstoqueView(page: ft.Page):
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=Sizes.BORDER_RADIUS_LARGE)),
         on_click=modal_movimentar_estoque,
     )
-    btn_sair       = Styles.button_danger("Menu Principal",   ft.icons.HOME,      lambda _: page.go("/"))
+
+    # =========================================================================
+    # ATALHOS DE TECLADO — ESTOQUE
+    # F2   Incluir novo produto
+    # F3   Alterar produto selecionado
+    # F4   Movimentar estoque (entrada/saída)
+    # F5   Atualizar / recarregar lista
+    # F8   Excluir produto selecionado
+    # F9   Alternar entre ativos e inativos
+    # F12  Voltar ao Menu Principal
+    # =========================================================================
+    def _on_keyboard(e: ft.KeyboardEvent):
+        if page.route != "/estoque":
+            return
+        k = e.key
+        if k == "F2":
+            modal_incluir_produto(None)
+        elif k == "F3":
+            modal_alterar_produto(None)
+        elif k == "F4":
+            modal_movimentar_estoque(None)
+        elif k == "F5":
+            carregar_produtos(
+                pesquisa_input.value.strip() if pesquisa_input.value else "",
+                filtro_dropdown.value or "Todos",
+            )
+        elif k == "F8":
+            modal_excluir_produto(None)
+        elif k == "F9":
+            toggle_inativos(None)
+        elif k == "Escape":
+            page.on_keyboard_event = None
+            page.go("/")
+
+    page.on_keyboard_event = _on_keyboard
+
+    btn_sair       = Styles.button_danger("Menu Principal - ESC", ft.icons.HOME, lambda _: (setattr(page, "on_keyboard_event", None), page.go("/")))
 
     sidebar = Styles.sidebar([
         btn_incluir,

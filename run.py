@@ -1,12 +1,56 @@
 import flet as ft
 import sys
 import os
-from app.views.styles.theme import Colors
-from app.api.turno_api import TurnoAPI
-from app.api.auth_api import get_role
 
 # Garante que o Python encontre a pasta 'app'
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+# =========================================================================
+# CLI — COMANDOS DE MANUTENÇÃO (rodam antes de qualquer boot do app)
+# Uso: python run.py reset-local
+# =========================================================================
+if len(sys.argv) > 1:
+    cmd = sys.argv[1].lower()
+
+    if cmd == "reset-local":
+        print("=" * 50)
+        print("  PDV Santa Ana — Reset do Banco Local")
+        print("=" * 50)
+
+        from app.utils.local_db import resetar_banco, _DB_PATH
+        resetar_banco(parar_sync=False)
+        print(f"  ✓ Banco em: {_DB_PATH}")
+
+        print("=" * 50)
+        print("  Banco local zerado. Próximo login fará novo sync.")
+        print("=" * 50)
+        sys.exit(0)
+
+    else:
+        print(f"Comando desconhecido: '{cmd}'")
+        print("Comandos disponíveis:")
+        print("  reset-local   Apaga o banco SQLite local e recria vazio")
+        sys.exit(1)
+
+# =========================================================================
+# BOOT — ORQUESTRAÇÃO DE SERVIÇOS CRÍTICOS
+# Deve rodar ANTES de qualquer import de view ou API que use o SQLite.
+# =========================================================================
+from app.views.styles.theme import Colors
+from app.api.turno_api import TurnoAPI
+from app.api.auth_api import get_role
+from app.utils.local_db import inicializar_banco
+from app.api.auth_api import restaurar_sessao_local
+from app.utils.connectivity import iniciar_monitor, checar_agora
+from app.utils.sync_engine import sincronizar_em_background
+
+inicializar_banco()        # 1. Cria tabelas se não existirem
+restaurar_sessao_local()   # 2. Carrega tokens em memória para uso offline (não pula login)
+checar_agora()             # 3. Determina estado online/offline imediatamente
+iniciar_monitor()          # 4. Sobe thread daemon que verifica rede a cada 10s
+sincronizar_em_background() # 5. Sobe a thread que gerencia o envio de vendas offline (Sync Engine)
+
+# =========================================================================
 
 from app.views.home_view import HomeView
 from app.views.vendas_view import VendasView
@@ -15,6 +59,7 @@ from app.views.usuarios_view import UsuariosView
 from app.views.historico_view import HistoricoView
 from app.views.relatorios_view import RelatoriosView
 from app.views.login_view import LoginView
+
 
 def main(page: ft.Page):
     page.title = "PDV Santa Ana"
@@ -220,18 +265,21 @@ def main(page: ft.Page):
     def route_change(e):
         page.views.clear()
 
-        # Vendas exige turno ativo
+        # Vendas exige turno ativo (só verifica se estiver online)
         if page.route in ROTAS_REQUER_TURNO:
-            try:
-                turno_ativo = TurnoAPI.get_turno_ativo()
-                if not turno_ativo:
-                    page.views.clear()
-                    page.views.append(ft.View("/", controls=[HomeView(page)], padding=0))
-                    page.update()
-                    modal_sem_turno()
-                    return
-            except Exception:
-                pass
+            from app.utils.connectivity import esta_online
+            if esta_online():
+                try:
+                    turno_ativo = TurnoAPI.get_turno_ativo()
+                    if not turno_ativo or (turno_ativo.get("status") or "").upper() != "ABERTO":
+                        page.views.clear()
+                        page.views.append(ft.View("/", controls=[HomeView(page)], padding=0))
+                        page.update()
+                        modal_sem_turno()
+                        return
+                except Exception:
+                    pass
+            # Offline: permite entrar em vendas (badge já avisa o estado)
 
         # Usuários exige role admin
         if page.route in ROTAS_REQUER_ADMIN:
@@ -315,7 +363,7 @@ def main(page: ft.Page):
         page.update()
 
     page.on_route_change = route_change
-    page.go("/login")  # ← inicia sempre pelo login
+    page.go("/login")  # Sempre exige login — sessão local só serve para uso offline após autenticação
 
 if __name__ == "__main__":
     ft.app(target=main)

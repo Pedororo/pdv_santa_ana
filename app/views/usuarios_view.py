@@ -1,6 +1,8 @@
 import flet as ft
 from app.views.styles.theme import Colors, Sizes, Styles, UsuariosCols
 from app.api.usuarios_api import UsuariosAPI
+from app.utils import connectivity
+from app.utils.local_db import upsert_usuarios_local, listar_usuarios_local
 
 
 def UsuariosView(page: ft.Page):
@@ -446,6 +448,38 @@ def UsuariosView(page: ft.Page):
         nonlocal todos_usuarios, usuario_selecionado
         usuario_selecionado = None
 
+        if not connectivity.esta_online():
+            # Modo offline — lê do espelho local
+            usuarios_local = listar_usuarios_local()
+            todos_usuarios = usuarios_local
+            if not usuarios_local:
+                items_list.controls.clear()
+                items_list.controls.append(
+                    ft.Container(
+                        content=ft.Column(
+                            controls=[
+                                ft.Icon(ft.icons.WIFI_OFF, size=64, color=Colors.BRAND_ORANGE),
+                                ft.Text("Modo Offline", size=Sizes.FONT_LARGE, weight=ft.FontWeight.BOLD, color=Colors.BRAND_ORANGE),
+                                ft.Text(
+                                    "Nenhum dado local disponível. Conecte-se para carregar os usuários.",
+                                    size=Sizes.FONT_SMALL,
+                                    color=Colors.TEXT_GRAY,
+                                    italic=True,
+                                    text_align=ft.TextAlign.CENTER,
+                                ),
+                            ],
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            spacing=10,
+                        ),
+                        padding=50,
+                        alignment=ft.alignment.center,
+                    )
+                )
+                page.update()
+            else:
+                aplicar_filtros()
+            return
+
         items_list.controls.clear()
         items_list.controls.append(
             ft.Container(
@@ -516,11 +550,41 @@ def UsuariosView(page: ft.Page):
         margin=ft.margin.only(top=Sizes.SPACING_LARGE),
     )
 
-    btn_incluir   = Styles.button_primary("Incluir Usuário",  ft.icons.PERSON_ADD,    modal_incluir)
-    btn_alterar   = Styles.button_warning("Alterar Usuário",  ft.icons.EDIT,          modal_alterar)
-    btn_desativar = Styles.button_danger("Desativar Usuário", ft.icons.BLOCK,         modal_desativar)
-    btn_reativar  = Styles.button_primary("Reativar Usuário", ft.icons.CHECK_CIRCLE,  modal_reativar)
-    btn_sair      = Styles.button_danger("Menu Principal",    ft.icons.HOME,          lambda _: page.go("/"))
+
+    # =========================================================================
+    # ATALHOS DE TECLADO — USUÁRIOS
+    # F2   Incluir novo usuário
+    # F3   Alterar usuário selecionado
+    # F5   Atualizar / recarregar lista
+    # F8   Desativar usuário selecionado
+    # F9   Reativar usuário selecionado
+    # F12  Voltar ao Menu Principal
+    # =========================================================================
+    def _on_keyboard(e: ft.KeyboardEvent):
+        if page.route != "/usuarios":
+            return
+        k = e.key
+        if k == "F2":
+            modal_incluir(None)
+        elif k == "F3":
+            modal_alterar(None)
+        elif k == "F5":
+            carregar_usuarios()
+        elif k == "F8":
+            modal_desativar(None)
+        elif k == "F9":
+            modal_reativar(None)
+        elif k == "Escape":
+            page.on_keyboard_event = None
+            page.go("/")
+
+    page.on_keyboard_event = _on_keyboard
+
+    btn_incluir   = Styles.button_primary("Incluir Usuário - F2", ft.icons.PERSON_ADD, modal_incluir)
+    btn_alterar   = Styles.button_warning("Alterar Usuário - F3", ft.icons.EDIT, modal_alterar)
+    btn_desativar = Styles.button_danger("Desativar Usuário - F8", ft.icons.BLOCK, modal_desativar)
+    btn_reativar  = Styles.button_primary("Reativar Usuário - F9", ft.icons.CHECK_CIRCLE, modal_reativar)
+    btn_sair      = Styles.button_danger("Menu Principal - ESC", ft.icons.HOME, lambda _: (setattr(page, "on_keyboard_event", None), page.go("/")))
 
     sidebar = Styles.sidebar([
         btn_incluir,
@@ -531,8 +595,39 @@ def UsuariosView(page: ft.Page):
         btn_sair,
     ])
 
+    # Banner offline — visível só quando sem conexão
+    banner_offline = ft.Container(
+        content=ft.Row(
+            controls=[
+                ft.Icon(ft.icons.WIFI_OFF, size=16, color=Colors.TEXT_WHITE),
+                ft.Text(
+                    "Modo offline — exibindo dados locais. Alterações indisponíveis.",
+                    size=Sizes.FONT_SMALL,
+                    color=Colors.TEXT_WHITE,
+                    weight=ft.FontWeight.BOLD,
+                ),
+            ],
+            spacing=8,
+        ),
+        bgcolor=Colors.BRAND_ORANGE,
+        padding=ft.padding.symmetric(horizontal=16, vertical=8),
+        border_radius=Sizes.BORDER_RADIUS_SMALL,
+        visible=not connectivity.esta_online(),
+    )
+
+    connectivity.ao_voltar_online(lambda: (
+        setattr(banner_offline, "visible", False),
+        banner_offline.update() if hasattr(banner_offline, "page") else None,
+        carregar_usuarios(),
+    ))
+    connectivity.ao_ficar_offline(lambda: (
+        setattr(banner_offline, "visible", True),
+        banner_offline.update() if hasattr(banner_offline, "page") else None,
+        carregar_usuarios(),
+    ))
+
     main_content = ft.Container(
-        content=ft.Column(controls=[top_section, table_container], spacing=0, expand=True),
+        content=ft.Column(controls=[banner_offline, top_section, table_container], spacing=Sizes.SPACING_SMALL, expand=True),
         expand=True,
         padding=Sizes.SPACING_LARGE,
     )
